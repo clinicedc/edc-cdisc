@@ -16,7 +16,7 @@ from edc_utils import get_utcnow
 from edc_visit_schedule.site_visit_schedules import site_visit_schedules
 from lxml import etree
 
-from edc_cdisc.odm import ODMClinicalDataSerializer
+from edc_cdisc.odm import ODMClinicalDataSerializer, ODMTransactionalSerializer
 from edc_cdisc.odm.clinical_data_builders import serialize_value
 from edc_cdisc.odm.constants import ODM_NAMESPACE
 
@@ -200,6 +200,168 @@ class TestODMClinicalDataSerializer(TestCase):
         )
         root = etree.fromstring(serializer.to_xml())
         self.assertEqual(root.get("Originator"), "clinicedc/edc-cdisc")
+
+
+@override_settings(SITE_ID=10)
+@time_machine.travel(datetime(2025, 8, 11, 8, 00, tzinfo=utc_tz))
+class TestODMTransactionalSerializer(TestCase):
+    @classmethod
+    def setUpTestData(cls) -> None:
+        import_holidays()
+        add_or_update_django_sites(single_sites=DEFAULT_SITES, verbose=False)
+
+    def setUp(self) -> None:
+        site_consents.registry = {}
+        site_consents.register(consent_v1)
+        site_visit_schedules._registry = {}
+        site_visit_schedules.loaded = False
+        self.visit_schedule = get_visit_schedule(consent_v1)
+        site_visit_schedules.register(self.visit_schedule)
+        self.helper = Helper(now=get_utcnow())
+        self.subject_visit = self.helper.enroll_to_baseline(
+            visit_schedule_name=self.visit_schedule.name,
+            schedule_name="schedule",
+        )
+
+    def test_file_type_transactional(self) -> None:
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=get_utcnow(),
+        )
+        root = etree.fromstring(serializer.to_xml())
+        self.assertEqual(root.get("FileType"), "Transactional")
+
+    def test_to_xml_returns_bytes(self) -> None:
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=get_utcnow(),
+        )
+        self.assertIsInstance(serializer.to_xml(), bytes)
+
+    def test_to_etree_returns_element(self) -> None:
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=get_utcnow(),
+        )
+        self.assertIsInstance(serializer.to_etree(), etree._Element)
+
+    def test_no_changes_since_future(self) -> None:
+        """CRF created before `since` and not modified — should not appear."""
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        far_future = datetime(2099, 1, 1, tzinfo=UTC)
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=far_future,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        sds = root.findall("odm:ClinicalData/odm:SubjectData", NS)
+        self.assertEqual(len(sds), 0)
+
+    def test_insert_transaction_type(self) -> None:
+        """CRF created after `since` gets TransactionType=Insert."""
+        before_create = get_utcnow()
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=before_create,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        fd = root.find(
+            "odm:ClinicalData/odm:SubjectData/odm:StudyEventData/odm:FormData",
+            NS,
+        )
+        self.assertIsNotNone(fd)
+        self.assertEqual(fd.get("TransactionType"), "Insert")
+
+    def test_update_transaction_type(self) -> None:
+        """CRF created before `since` but modified after gets Update."""
+        crf = CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        # Move `since` to after creation
+        after_create = get_utcnow()
+        # Modify the CRF — save triggers modified update
+        crf.save()
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=after_create,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        fd = root.find(
+            "odm:ClinicalData/odm:SubjectData/odm:StudyEventData/odm:FormData",
+            NS,
+        )
+        self.assertIsNotNone(fd)
+        self.assertEqual(fd.get("TransactionType"), "Update")
+
+    def test_snapshot_has_no_transaction_type(self) -> None:
+        """Snapshot serializer should NOT have TransactionType."""
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMClinicalDataSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        fd = root.find(
+            "odm:ClinicalData/odm:SubjectData/odm:StudyEventData/odm:FormData",
+            NS,
+        )
+        self.assertIsNotNone(fd)
+        self.assertIsNone(fd.get("TransactionType"))
+
+    def test_clinical_data_element(self) -> None:
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=get_utcnow(),
+        )
+        root = etree.fromstring(serializer.to_xml())
+        cd = root.find("odm:ClinicalData", NS)
+        self.assertIsNotNone(cd)
+        self.assertIsNotNone(cd.get("StudyOID"))
+
+    def test_item_data_on_insert(self) -> None:
+        """Inserted CRF should still carry ItemData values."""
+        before_create = get_utcnow()
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=before_create,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        items = root.findall(
+            "odm:ClinicalData/odm:SubjectData"
+            "/odm:StudyEventData/odm:FormData"
+            "/odm:ItemGroupData/odm:ItemData",
+            NS,
+        )
+        self.assertGreater(len(items), 0)
+
+    def test_subject_filter(self) -> None:
+        before_create = get_utcnow()
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=before_create,
+            subject_identifiers=["NONEXISTENT"],
+        )
+        root = etree.fromstring(serializer.to_xml())
+        sds = root.findall("odm:ClinicalData/odm:SubjectData", NS)
+        self.assertEqual(len(sds), 0)
 
 
 class TestSerializeValue(TestCase):
