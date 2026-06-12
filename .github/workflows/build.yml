@@ -1,0 +1,63 @@
+---
+name: build
+
+# yamllint disable-line rule:truthy
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: >-
+      build (Python ${{ matrix.python-version }},
+      Django ${{ matrix.django-version }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13', '3.14']
+        django-version: ['5.2', '6.0', 'dev']
+
+    services:
+      mysql:
+        image: mysql:latest
+        env:
+          MYSQL_DATABASE: mysql
+          # pragma: allowlist secret
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+    steps:
+      - name: Install pycups and words dependency
+        run: |
+          sudo sed -i 's/azure\.//' /etc/apt/sources.list
+          sudo apt-get -y update
+          sudo apt-get install libcups2-dev wamerican
+
+      - uses: actions/checkout@v4
+
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync --dev --no-sources
+          if [ "${{ matrix.django-version }}" = "dev" ]; then
+            uv pip install \
+              "django @ git+https://github.com/django/django.git@main"
+          else
+            uv pip install \
+              "django~=${{ matrix.django-version }}.0"
+          fi
+
+      - name: Run tests
+        run: |
+          uv run --dev --no-sources runtests.py
