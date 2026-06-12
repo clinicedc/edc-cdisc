@@ -2,7 +2,7 @@
 name = "edc-cdisc"
 version = "0.1.0"
 description = "CDISC compliance"
-readme = "README.md"
+readme = "README.rst"
 requires-python = ">=3.14"
 dependencies = [
     "clinicedc>=4.0.6",
