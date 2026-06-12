@@ -8,7 +8,8 @@ jobs:
   build:
     name: >-
       build (Python ${{ matrix.python-version }},
-      Django ${{ matrix.django-version }})
+      Django ${{ matrix.django-version }},
+      ${{ matrix.database }})
     runs-on: ubuntu-latest
 
     strategy:
@@ -16,6 +17,7 @@ jobs:
       matrix:
         python-version: ['3.12', '3.13', '3.14']
         django-version: ['5.2', '6.0', 'dev']
+        database: ['mysql', 'postgres']
 
     services:
       mysql:
@@ -31,6 +33,20 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=3
+
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: test_db
+          # pragma: allowlist secret
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Install pycups and words dependency
@@ -59,5 +75,7 @@ jobs:
           fi
 
       - name: Run tests
+        env:
+          SELECTED_DATABASE: ${{ matrix.database }}
         run: |
           uv run --dev --no-sources runtests.py

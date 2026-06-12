@@ -1,3 +1,4 @@
+import os
 import sys
 from datetime import datetime
 from importlib.resources import files
@@ -122,6 +123,26 @@ project_settings = DefaultTestSettings(
     add_dashboard_middleware=True,
     add_lab_dashboard_middleware=True,
 ).settings
+
+if os.environ.get("SELECTED_DATABASE") == "postgres":
+    project_settings["DATABASES"] = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": "test_db",
+            "USER": "postgres",
+            "PASSWORD": "postgres",
+            "HOST": "127.0.0.1",
+            "PORT": 5432,
+        },
+        "client": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": "test_db2",
+            "USER": "postgres",
+            "PASSWORD": "postgres",
+            "HOST": "127.0.0.1",
+            "PORT": 5432,
+        },
+    }
 
 for k, v in project_settings.items():
     setattr(sys.modules[__name__], k, v)

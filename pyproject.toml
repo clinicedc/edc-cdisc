@@ -12,6 +12,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "clinicedc-tests>=1.2.2",
+    "psycopg>=3.2",
     "ruff>=0.15.15",
     "sphinx>=9.1.0",
 ]
