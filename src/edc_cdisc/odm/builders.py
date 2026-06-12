@@ -140,8 +140,10 @@ def build_protocol(
     visit_schedule: VisitSchedule,
 ) -> etree._Element:
     protocol = etree.Element("Protocol")
+    order = 0
     for schedule in visit_schedule.schedules.values():
         for visit in schedule.visits.values():
+            order += 1
             etree.SubElement(
                 protocol,
                 "StudyEventRef",
@@ -149,6 +151,24 @@ def build_protocol(
                 OrderNumber=str(int(visit.timepoint)),
                 Mandatory="Yes",
             )
+    for name in collect_unique_unscheduled_collections(visit_schedule):
+        order += 1
+        etree.SubElement(
+            protocol,
+            "StudyEventRef",
+            StudyEventOID=_oid("SE", f"UNSCHED.{name}"),
+            OrderNumber=str(order),
+            Mandatory="No",
+        )
+    for model_label in collect_common_models(visit_schedule):
+        order += 1
+        etree.SubElement(
+            protocol,
+            "StudyEventRef",
+            StudyEventOID=_oid("SE", f"COMMON.{model_label}"),
+            OrderNumber=str(order),
+            Mandatory="No",
+        )
     return protocol
 
 
@@ -169,6 +189,61 @@ def build_study_event_def(visit: Visit) -> etree._Element:
             OrderNumber=str(crf.show_order),
             Mandatory="Yes" if crf.required else "No",
         )
+    for crf in _iter_visit_crfs_prn(visit):
+        model_label = crf.model
+        etree.SubElement(
+            sed,
+            "FormRef",
+            FormOID=_oid("F", model_label),
+            OrderNumber=str(crf.show_order),
+            Mandatory="No",
+        )
+    return sed
+
+
+def build_unscheduled_event_def(
+    collection_name: str,
+    crfs: tuple[Crf, ...],
+) -> etree._Element:
+    sed = etree.Element(
+        "StudyEventDef",
+        OID=_oid("SE", f"UNSCHED.{collection_name}"),
+        Name=f"Unscheduled ({collection_name})",
+        Repeating="Yes",
+        Type="Unscheduled",
+    )
+    seen: set[str] = set()
+    for crf in crfs:
+        if crf.model not in seen:
+            seen.add(crf.model)
+            etree.SubElement(
+                sed,
+                "FormRef",
+                FormOID=_oid("F", crf.model),
+                OrderNumber=str(crf.show_order),
+                Mandatory="Yes" if crf.required else "No",
+            )
+    return sed
+
+
+def build_common_event_def(
+    model_label: str,
+    name: str,
+) -> etree._Element:
+    sed = etree.Element(
+        "StudyEventDef",
+        OID=_oid("SE", f"COMMON.{model_label}"),
+        Name=name,
+        Repeating="No",
+        Type="Common",
+    )
+    etree.SubElement(
+        sed,
+        "FormRef",
+        FormOID=_oid("F", model_label),
+        OrderNumber="1",
+        Mandatory="Yes",
+    )
     return sed
 
 
@@ -176,6 +251,15 @@ def _iter_visit_crfs(visit: Visit) -> Iterator[Crf]:
     seen = set()
     for crf in visit.crfs:
         if crf.model not in seen:
+            seen.add(crf.model)
+            yield crf
+
+
+def _iter_visit_crfs_prn(visit: Visit) -> Iterator[Crf]:
+    scheduled_models = {crf.model for crf in visit.crfs}
+    seen = set()
+    for crf in visit.crfs_prn or ():
+        if crf.model not in seen and crf.model not in scheduled_models:
             seen.add(crf.model)
             yield crf
 
@@ -340,10 +424,59 @@ def collect_unique_models(
 ) -> list[str]:
     seen: set[str] = set()
     ordered: list[str] = []
+
+    def _add(model_label: str) -> None:
+        if model_label not in seen:
+            seen.add(model_label)
+            ordered.append(model_label)
+
     for schedule in visit_schedule.schedules.values():
         for visit in schedule.visits.values():
             for crf in visit.crfs:
-                if crf.model not in seen:
-                    seen.add(crf.model)
-                    ordered.append(crf.model)
+                _add(crf.model)
+            for crf in visit.crfs_prn or ():
+                _add(crf.model)
+            for crf in visit.crfs_unscheduled or ():
+                _add(crf.model)
+
+    for model_label in collect_common_models(visit_schedule):
+        _add(model_label)
+
     return ordered
+
+
+def collect_unique_unscheduled_collections(
+    visit_schedule: VisitSchedule,
+) -> dict[str, tuple[Crf, ...]]:
+    collections: dict[str, tuple[Crf, ...]] = {}
+    for schedule in visit_schedule.schedules.values():
+        for visit in schedule.visits.values():
+            if visit.crfs_unscheduled:
+                name = (
+                    getattr(visit.crfs_unscheduled, "name", None)
+                    or f"unscheduled_{visit.code}"
+                )
+                if name not in collections:
+                    collections[name] = tuple(visit.crfs_unscheduled)
+    return collections
+
+
+def collect_common_models(
+    visit_schedule: VisitSchedule,
+) -> list[str]:
+    return [
+        model_label
+        for model_label in [
+            visit_schedule.death_report_model,
+            visit_schedule.offstudy_model,
+        ]
+        if model_label and _model_exists(model_label)
+    ]
+
+
+def _model_exists(model_label: str) -> bool:
+    try:
+        django_apps.get_model(model_label)
+    except LookupError:
+        return False
+    return True
