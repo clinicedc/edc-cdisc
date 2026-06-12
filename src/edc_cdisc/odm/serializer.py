@@ -10,14 +10,19 @@ from lxml import etree
 
 from .builders import (
     _iter_crf_fields,
+    _model_verbose_name,
     build_code_list,
+    build_common_event_def,
     build_form_def,
     build_global_variables,
     build_item_def,
     build_item_group_defs,
     build_protocol,
     build_study_event_def,
+    build_unscheduled_event_def,
+    collect_common_models,
     collect_unique_models,
+    collect_unique_unscheduled_collections,
 )
 from .constants import ODM_NAMESPACE, ODM_VERSION
 
@@ -100,8 +105,22 @@ class ODMStudySerializer:
             for visit in schedule.visits.values():
                 mdv.append(build_study_event_def(visit))
 
-        models = collect_unique_models(self.visit_schedule)
+        for name, crfs in collect_unique_unscheduled_collections(self.visit_schedule).items():
+            mdv.append(build_unscheduled_event_def(name, crfs))
 
+        for model_label in collect_common_models(self.visit_schedule):
+            verbose = _model_verbose_name(model_label)
+            mdv.append(build_common_event_def(model_label, verbose))
+
+        self._append_model_definitions(mdv, collect_unique_models(self.visit_schedule))
+
+        return study
+
+    @staticmethod
+    def _append_model_definitions(
+        mdv: etree._Element,
+        models: list[str],
+    ) -> None:
         for model_label in models:
             mdv.append(build_form_def(model_label))
 
@@ -120,5 +139,3 @@ class ODMStudySerializer:
                 cl = build_code_list(model_label, model_field)
                 if cl is not None:
                     mdv.append(cl)
-
-        return study

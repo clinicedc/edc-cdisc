@@ -3,9 +3,11 @@ from clinicedc_tests.visit_schedules.visit_schedule import (
     get_visit_schedule,
 )
 from django.test import TestCase
+from edc_visit_schedule.visit import Crf, CrfCollection
 from lxml import etree
 
 from edc_cdisc.odm import ODMStudySerializer
+from edc_cdisc.odm.builders import collect_common_models
 from edc_cdisc.odm.constants import ODM_NAMESPACE, ODM_VERSION
 
 NS = {"odm": ODM_NAMESPACE}
@@ -57,25 +59,98 @@ class TestODMStudySerializer(TestCase):
         self.assertIsNotNone(mdv)
         self.assertEqual(mdv.get("OID"), "MDV.1")
 
-    def test_protocol_has_study_event_refs(self) -> None:
+    def test_protocol_has_scheduled_event_refs(self) -> None:
         serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
         root = etree.fromstring(serializer.to_xml())
         refs = root.findall(
             "odm:Study/odm:MetaDataVersion/odm:Protocol/odm:StudyEventRef",
             NS,
         )
+        scheduled_refs = [
+            r
+            for r in refs
+            if not r.get("StudyEventOID", "").startswith("SE.UNSCHED.")
+            and not r.get("StudyEventOID", "").startswith("SE.COMMON.")
+        ]
         visit_count = sum(len(s.visits) for s in self.visit_schedule.schedules.values())
-        self.assertEqual(len(refs), visit_count)
+        self.assertEqual(len(scheduled_refs), visit_count)
 
-    def test_study_event_defs_match_visits(self) -> None:
+    def test_protocol_has_unscheduled_event_refs(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        refs = root.findall(
+            "odm:Study/odm:MetaDataVersion/odm:Protocol/odm:StudyEventRef",
+            NS,
+        )
+        unsched_refs = [
+            r for r in refs if r.get("StudyEventOID", "").startswith("SE.UNSCHED.")
+        ]
+        self.assertGreater(len(unsched_refs), 0)
+        for ref in unsched_refs:
+            self.assertEqual(ref.get("Mandatory"), "No")
+
+    def test_protocol_has_common_event_refs(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        refs = root.findall(
+            "odm:Study/odm:MetaDataVersion/odm:Protocol/odm:StudyEventRef",
+            NS,
+        )
+        common_refs = [r for r in refs if r.get("StudyEventOID", "").startswith("SE.COMMON.")]
+        self.assertGreater(len(common_refs), 0)
+        for ref in common_refs:
+            self.assertEqual(ref.get("Mandatory"), "No")
+
+    def test_scheduled_study_event_defs(self) -> None:
         serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
         root = etree.fromstring(serializer.to_xml())
         seds = root.findall(
             "odm:Study/odm:MetaDataVersion/odm:StudyEventDef",
             NS,
         )
+        scheduled = [s for s in seds if s.get("Type") == "Scheduled"]
         visit_count = sum(len(s.visits) for s in self.visit_schedule.schedules.values())
-        self.assertEqual(len(seds), visit_count)
+        self.assertEqual(len(scheduled), visit_count)
+
+    def test_unscheduled_study_event_defs(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        seds = root.findall(
+            "odm:Study/odm:MetaDataVersion/odm:StudyEventDef",
+            NS,
+        )
+        unscheduled = [s for s in seds if s.get("Type") == "Unscheduled"]
+        self.assertGreater(len(unscheduled), 0)
+        for sed in unscheduled:
+            self.assertEqual(sed.get("Repeating"), "Yes")
+
+    def test_common_study_event_defs(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        seds = root.findall(
+            "odm:Study/odm:MetaDataVersion/odm:StudyEventDef",
+            NS,
+        )
+        common = [s for s in seds if s.get("Type") == "Common"]
+        self.assertGreater(len(common), 0)
+
+    def test_common_event_offstudy(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        seds = root.findall(
+            "odm:Study/odm:MetaDataVersion/odm:StudyEventDef",
+            NS,
+        )
+        offstudy_events = [
+            s for s in seds if "edc_offstudy.subjectoffstudy" in s.get("OID", "")
+        ]
+        self.assertEqual(len(offstudy_events), 1)
+        self.assertEqual(offstudy_events[0].get("Type"), "Common")
+
+    def test_common_event_skips_unresolvable_model(self) -> None:
+        models = collect_common_models(self.visit_schedule)
+        self.assertNotIn("edc_adverse_event.deathreport", models)
+        self.assertIn("edc_offstudy.subjectoffstudy", models)
 
     def test_study_event_def_has_form_refs(self) -> None:
         serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
@@ -86,6 +161,122 @@ class TestODMStudySerializer(TestCase):
         )
         form_refs = sed.findall("odm:FormRef", NS)
         self.assertGreater(len(form_refs), 0)
+
+    def test_prn_crfs_included_in_study_event_def(self) -> None:
+        crfs_prn = CrfCollection(
+            Crf(show_order=100, model="clinicedc_tests.crfone"),
+            Crf(show_order=101, model="clinicedc_tests.crftwo"),
+            name="prn",
+        )
+        visit_schedule = get_visit_schedule(
+            consent_v1,
+            crfs=CrfCollection(
+                Crf(show_order=1, model="clinicedc_tests.crflongitudinalone"),
+                Crf(show_order=2, model="clinicedc_tests.crflongitudinaltwo"),
+            ),
+        )
+        for schedule in visit_schedule.schedules.values():
+            for visit in schedule.visits.values():
+                visit._crfs_prn = crfs_prn
+                visit.crfs_prn = crfs_prn
+
+        serializer = ODMStudySerializer(visit_schedule=visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        sed = root.find(
+            "odm:Study/odm:MetaDataVersion/odm:StudyEventDef",
+            NS,
+        )
+        form_refs = sed.findall("odm:FormRef", NS)
+        oids = [ref.get("FormOID") for ref in form_refs]
+        self.assertIn("F.clinicedc_tests.crfone", oids)
+        self.assertIn("F.clinicedc_tests.crftwo", oids)
+
+    def test_prn_form_refs_mandatory_no(self) -> None:
+        crfs_prn = CrfCollection(
+            Crf(show_order=100, model="clinicedc_tests.crfone"),
+            name="prn",
+        )
+        visit_schedule = get_visit_schedule(
+            consent_v1,
+            crfs=CrfCollection(
+                Crf(show_order=1, model="clinicedc_tests.crflongitudinalone"),
+            ),
+        )
+        for schedule in visit_schedule.schedules.values():
+            for visit in schedule.visits.values():
+                visit.crfs_prn = crfs_prn
+
+        serializer = ODMStudySerializer(visit_schedule=visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        sed = root.find(
+            "odm:Study/odm:MetaDataVersion/odm:StudyEventDef",
+            NS,
+        )
+        prn_ref = [
+            ref
+            for ref in sed.findall("odm:FormRef", NS)
+            if ref.get("FormOID") == "F.clinicedc_tests.crfone"
+        ]
+        self.assertEqual(len(prn_ref), 1)
+        self.assertEqual(prn_ref[0].get("Mandatory"), "No")
+
+    def test_prn_crfs_not_duplicated_when_already_scheduled(self) -> None:
+        crfs = CrfCollection(
+            Crf(show_order=1, model="clinicedc_tests.crflongitudinalone"),
+        )
+        crfs_prn = CrfCollection(
+            Crf(show_order=100, model="clinicedc_tests.crflongitudinalone"),
+            name="prn",
+        )
+        visit_schedule = get_visit_schedule(consent_v1, crfs=crfs)
+        for schedule in visit_schedule.schedules.values():
+            for visit in schedule.visits.values():
+                visit.crfs_prn = crfs_prn
+
+        serializer = ODMStudySerializer(visit_schedule=visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        sed = root.find(
+            "odm:Study/odm:MetaDataVersion/odm:StudyEventDef",
+            NS,
+        )
+        matching = [
+            ref
+            for ref in sed.findall("odm:FormRef", NS)
+            if ref.get("FormOID") == "F.clinicedc_tests.crflongitudinalone"
+        ]
+        self.assertEqual(len(matching), 1)
+
+    def test_unscheduled_event_has_form_refs(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        seds = root.findall(
+            "odm:Study/odm:MetaDataVersion/odm:StudyEventDef",
+            NS,
+        )
+        unscheduled = [s for s in seds if s.get("Type") == "Unscheduled"]
+        for sed in unscheduled:
+            form_refs = sed.findall("odm:FormRef", NS)
+            self.assertGreater(len(form_refs), 0)
+
+    def test_unscheduled_models_in_form_defs(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        fds = root.findall(
+            "odm:Study/odm:MetaDataVersion/odm:FormDef",
+            NS,
+        )
+        form_oids = {fd.get("OID") for fd in fds}
+        self.assertIn("F.clinicedc_tests.crfeight", form_oids)
+
+    def test_common_models_in_form_defs(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        fds = root.findall(
+            "odm:Study/odm:MetaDataVersion/odm:FormDef",
+            NS,
+        )
+        form_oids = {fd.get("OID") for fd in fds}
+        self.assertIn("F.edc_offstudy.subjectoffstudy", form_oids)
 
     def test_form_defs_exist(self) -> None:
         serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
