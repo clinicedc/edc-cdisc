@@ -1,16 +1,22 @@
-.. edc-cdisc documentation master file, created by
-   sphinx-quickstart on Fri Jun 12 09:54:13 2026.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+edc-cdisc
+=========
 
-edc-cdisc documentation
-=======================
+CDISC ODM and SDTM export for the `clinicedc <https://github.com/clinicedc>`_
+clinical-trial data-collection framework.
 
-Add your content using ``reStructuredText`` syntax. See the
-`reStructuredText <https://www.sphinx-doc.org/en/master/usage/restructuredtext/index.html>`_
-documentation for details.
-
+``edc-cdisc`` reads the visit schedule, CRF definitions, and submitted data
+from a clinicedc installation and produces standards-compliant XML in
+`CDISC ODM 1.3.2 <https://www.cdisc.org/standards/data-exchange/odm>`_
+format.
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
+
+   installation
+   quickstart
+   metadata_export
+   data_export_snapshot
+   data_export_transactional
+   odm_mapping
+   api
