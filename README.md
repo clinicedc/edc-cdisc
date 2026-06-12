@@ -1,2 +1,0 @@
-# edc-disc
-CDISC
