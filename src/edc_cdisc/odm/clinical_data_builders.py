@@ -62,11 +62,12 @@ def build_clinical_data(
 def build_subject_data(
     subject_identifier: str,
     study_event_elements: list[etree._Element],
+    transaction_type: str | None = None,
 ) -> etree._Element:
-    sd = etree.Element(
-        "SubjectData",
-        SubjectKey=subject_identifier,
-    )
+    attrs: dict[str, str] = {"SubjectKey": subject_identifier}
+    if transaction_type:
+        attrs["TransactionType"] = transaction_type
+    sd = etree.Element("SubjectData", **attrs)
     for se in study_event_elements:
         sd.append(se)
     return sd
@@ -76,12 +77,15 @@ def build_study_event_data(
     visit_code: str,
     visit_code_sequence: int,
     form_data_elements: list[etree._Element],
+    transaction_type: str | None = None,
 ) -> etree._Element:
     attrs: dict[str, str] = {
         "StudyEventOID": _oid("SE", visit_code),
     }
     if visit_code_sequence > 0:
         attrs["StudyEventRepeatKey"] = str(visit_code_sequence)
+    if transaction_type:
+        attrs["TransactionType"] = transaction_type
     sed = etree.Element("StudyEventData", **attrs)
     for fd in form_data_elements:
         sed.append(fd)
@@ -91,12 +95,13 @@ def build_study_event_data(
 def build_form_data(
     model_label: str,
     instance: models.Model,
+    transaction_type: str | None = None,
 ) -> etree._Element:
     model_cls = type(instance)
-    fd = etree.Element(
-        "FormData",
-        FormOID=_oid("F", model_label),
-    )
+    attrs: dict[str, str] = {"FormOID": _oid("F", model_label)}
+    if transaction_type:
+        attrs["TransactionType"] = transaction_type
+    fd = etree.Element("FormData", **attrs)
     fieldsets = _get_clinical_fieldsets(model_cls)
     if fieldsets:
         _append_item_groups_from_fieldsets(fd, model_label, model_cls, instance, fieldsets)
@@ -161,15 +166,15 @@ def _append_item_group_from_meta(
         fd.append(igd)
 
 
-def get_submitted_crf_instances(
+def _keyed_metadata_qs(
     subject_identifier: str,
     visit_code: str,
     visit_code_sequence: int,
     visit_schedule_name: str,
     schedule_name: str,
-) -> list[tuple[str, models.Model]]:
+) -> models.QuerySet:
     crf_metadata_cls = django_apps.get_model("edc_metadata.crfmetadata")
-    metadata_qs = crf_metadata_cls.objects.filter(
+    return crf_metadata_cls.objects.filter(
         subject_identifier=subject_identifier,
         visit_code=visit_code,
         visit_code_sequence=visit_code_sequence,
@@ -178,11 +183,47 @@ def get_submitted_crf_instances(
         entry_status="KEYED",
     ).order_by("show_order")
 
+
+def get_submitted_crf_instances(
+    subject_identifier: str,
+    visit_code: str,
+    visit_code_sequence: int,
+    visit_schedule_name: str,
+    schedule_name: str,
+) -> list[tuple[str, models.Model]]:
     results: list[tuple[str, models.Model]] = []
-    for metadata in metadata_qs:
+    for metadata in _keyed_metadata_qs(
+        subject_identifier,
+        visit_code,
+        visit_code_sequence,
+        visit_schedule_name,
+        schedule_name,
+    ):
         instance = metadata.model_instance
         if instance is not None:
             results.append((metadata.model, instance))
+    return results
+
+
+def get_changed_crf_instances(
+    metadata_qs: models.QuerySet,
+    since: datetime,
+) -> list[tuple[str, models.Model, str]]:
+    """Return (model_label, instance, transaction_type) for CRFs
+    changed since the given timestamp.
+
+    TransactionType is "Insert" if created >= since,
+    "Update" if modified >= since but created < since.
+    """
+    results: list[tuple[str, models.Model, str]] = []
+    for metadata in metadata_qs:
+        instance = metadata.model_instance
+        if instance is None:
+            continue
+        if instance.created >= since:
+            results.append((metadata.model, instance, "Insert"))
+        elif instance.modified >= since:
+            results.append((metadata.model, instance, "Update"))
     return results
 
 
