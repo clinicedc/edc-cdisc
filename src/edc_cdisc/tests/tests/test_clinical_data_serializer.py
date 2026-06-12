@@ -10,7 +10,7 @@ from clinicedc_tests.visit_schedules.visit_schedule import get_visit_schedule
 from django.test import TestCase, override_settings
 from edc_consent.site_consents import site_consents
 from edc_facility.import_holidays import import_holidays
-from edc_sites.tests import SiteTestCaseMixin
+from edc_sites.single_site import SingleSite
 from edc_sites.utils import add_or_update_django_sites
 from edc_utils import get_utcnow
 from edc_visit_schedule.site_visit_schedules import site_visit_schedules
@@ -23,14 +23,26 @@ from edc_cdisc.odm.constants import ODM_NAMESPACE
 NS = {"odm": ODM_NAMESPACE}
 utc_tz = ZoneInfo("UTC")
 
+DEFAULT_SITES = [
+    SingleSite(
+        10,
+        "mochudi",
+        title="Mochudi",
+        country="botswana",
+        country_code="bw",
+        language_codes=["en"],
+        domain="mochudi.bw.clinicedc.org",
+    ),
+]
+
 
 @override_settings(SITE_ID=10)
 @time_machine.travel(datetime(2025, 8, 11, 8, 00, tzinfo=utc_tz))
-class TestODMClinicalDataSerializer(SiteTestCaseMixin, TestCase):
+class TestODMClinicalDataSerializer(TestCase):
     @classmethod
     def setUpTestData(cls) -> None:
         import_holidays()
-        add_or_update_django_sites(single_sites=cls.get_default_sites(), verbose=False)
+        add_or_update_django_sites(single_sites=DEFAULT_SITES, verbose=False)
 
     def setUp(self) -> None:
         site_consents.registry = {}
