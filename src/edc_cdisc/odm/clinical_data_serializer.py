@@ -1,13 +1,13 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from itertools import groupby
-from operator import attrgetter
 from typing import TYPE_CHECKING
 
 from edc_protocol.research_protocol_config import ResearchProtocolConfig
 from lxml import etree
+from tqdm import tqdm
 
 from .clinical_data_builders import (
     _keyed_metadata_qs,
@@ -25,9 +25,19 @@ from .serializer import ODMStudySerializer
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from django.db import models
     from edc_visit_schedule.visit_schedule import VisitSchedule
 
 NSMAP = {None: ODM_NAMESPACE}
+
+
+def _group_visits_by_subject(
+    visits_qs: models.QuerySet,
+) -> dict[str, list]:
+    grouped: dict[str, list] = defaultdict(list)
+    for visit in visits_qs:
+        grouped[visit.subject_identifier].append(visit)
+    return dict(grouped)
 
 
 @dataclass
@@ -79,10 +89,11 @@ class ODMClinicalDataSerializer:
             visit_schedule_name=self.visit_schedule.name,
             subject_identifiers=self.subject_identifiers,
         )
+        grouped = _group_visits_by_subject(visits_qs)
 
         subject_data_elements: list[etree._Element] = []
-        for subject_id, visits in groupby(visits_qs, key=attrgetter("subject_identifier")):
-            subject_data_elements.append(self._build_subject_data(subject_id, list(visits)))
+        for subject_id, visits in tqdm(grouped.items(), desc="Snapshot", unit="subject"):
+            subject_data_elements.append(self._build_subject_data(subject_id, visits))
 
         return build_clinical_data(
             study_oid=self.study_oid,
@@ -179,10 +190,11 @@ class ODMTransactionalSerializer:
             visit_schedule_name=self.visit_schedule.name,
             subject_identifiers=self.subject_identifiers,
         )
+        grouped = _group_visits_by_subject(visits_qs)
 
         subject_data_elements: list[etree._Element] = []
-        for subject_id, visits in groupby(visits_qs, key=attrgetter("subject_identifier")):
-            sd = self._build_subject_data(subject_id, list(visits))
+        for subject_id, visits in tqdm(grouped.items(), desc="Transactional", unit="subject"):
+            sd = self._build_subject_data(subject_id, visits)
             if sd is not None:
                 subject_data_elements.append(sd)
 
