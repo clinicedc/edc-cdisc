@@ -17,6 +17,7 @@ format.
    quickstart
    metadata_export
    data_export_snapshot
+   data_export_combined
    data_export_transactional
    odm_mapping
    api

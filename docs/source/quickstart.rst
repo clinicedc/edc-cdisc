@@ -1,7 +1,7 @@
 Quickstart
 ==========
 
-``edc-cdisc`` provides three serializers, each producing a different flavour of
+``edc-cdisc`` provides four serializers, each producing a different flavour of
 CDISC ODM 1.3.1 XML:
 
 .. list-table::
@@ -18,11 +18,14 @@ CDISC ODM 1.3.1 XML:
    * - ``ODMClinicalDataSerializer``
      - Snapshot
      - Full data dump of submitted CRF values
+   * - ``ODMSnapshotSerializer``
+     - Snapshot
+     - Combined: study metadata **and** clinical data in one file
    * - ``ODMTransactionalSerializer``
      - Transactional
      - Incremental export of CRF data changed since a given timestamp
 
-All three follow the same pattern:
+All four follow the same pattern:
 
 1. Instantiate with a ``VisitSchedule`` (and any optional parameters).
 2. Call ``.to_xml()`` for UTF-8 bytes or ``.to_etree()`` for an lxml Element.
@@ -36,6 +39,7 @@ Minimal example
 
    from edc_cdisc.odm import (
        ODMClinicalDataSerializer,
+       ODMSnapshotSerializer,
        ODMStudySerializer,
        ODMTransactionalSerializer,
    )
@@ -43,17 +47,22 @@ Minimal example
    # Get the registered visit schedule
    visit_schedule = site_visit_schedules.get_visit_schedule("my_visit_schedule")
 
-   # 1. Export study metadata
+   # 1. Export study metadata only
    metadata_xml = ODMStudySerializer(
        visit_schedule=visit_schedule,
    ).to_xml()
 
-   # 2. Export all submitted data (snapshot)
+   # 2. Export all submitted data only (snapshot)
    data_xml = ODMClinicalDataSerializer(
        visit_schedule=visit_schedule,
    ).to_xml()
 
-   # 3. Export only data changed in the last 24 hours
+   # 3. Export metadata + data in a single file (combined snapshot)
+   combined_xml = ODMSnapshotSerializer(
+       visit_schedule=visit_schedule,
+   ).to_xml()
+
+   # 4. Export only data changed in the last 24 hours
    from datetime import UTC, datetime, timedelta
 
    since = datetime.now(tz=UTC) - timedelta(hours=24)
@@ -77,9 +86,9 @@ Writing to a file
 Filtering by subject
 --------------------
 
-Both ``ODMClinicalDataSerializer`` and ``ODMTransactionalSerializer`` accept an
-optional ``subject_identifiers`` parameter to restrict output to specific
-subjects:
+``ODMClinicalDataSerializer``, ``ODMSnapshotSerializer``, and
+``ODMTransactionalSerializer`` accept an optional ``subject_identifiers``
+parameter to restrict output to specific subjects:
 
 .. code-block:: python
 

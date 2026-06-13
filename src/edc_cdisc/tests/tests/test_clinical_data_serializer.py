@@ -16,7 +16,11 @@ from edc_utils import get_utcnow
 from edc_visit_schedule.site_visit_schedules import site_visit_schedules
 from lxml import etree
 
-from edc_cdisc.odm import ODMClinicalDataSerializer, ODMTransactionalSerializer
+from edc_cdisc.odm import (
+    ODMClinicalDataSerializer,
+    ODMSnapshotSerializer,
+    ODMTransactionalSerializer,
+)
 from edc_cdisc.odm.clinical_data_builders import serialize_value
 from edc_cdisc.odm.constants import ODM_NAMESPACE
 
@@ -362,6 +366,122 @@ class TestODMTransactionalSerializer(TestCase):
         root = etree.fromstring(serializer.to_xml())
         sds = root.findall("odm:ClinicalData/odm:SubjectData", NS)
         self.assertEqual(len(sds), 0)
+
+
+@override_settings(SITE_ID=10)
+@time_machine.travel(datetime(2025, 8, 11, 8, 00, tzinfo=utc_tz))
+class TestODMSnapshotSerializer(TestCase):
+    @classmethod
+    def setUpTestData(cls) -> None:
+        import_holidays()
+        add_or_update_django_sites(single_sites=DEFAULT_SITES, verbose=False)
+
+    def setUp(self) -> None:
+        site_consents.registry = {}
+        site_consents.register(consent_v1)
+        site_visit_schedules._registry = {}
+        site_visit_schedules.loaded = False
+        self.visit_schedule = get_visit_schedule(consent_v1)
+        site_visit_schedules.register(self.visit_schedule)
+        self.helper = Helper(now=get_utcnow())
+        self.subject_visit = self.helper.enroll_to_baseline(
+            visit_schedule_name=self.visit_schedule.name,
+            schedule_name="schedule",
+        )
+
+    def test_produces_valid_xml(self) -> None:
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        xml_bytes = serializer.to_xml()
+        root = etree.fromstring(xml_bytes)
+        self.assertEqual(root.tag, f"{{{ODM_NAMESPACE}}}ODM")
+
+    def test_file_type_is_snapshot(self) -> None:
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        self.assertEqual(root.get("FileType"), "Snapshot")
+
+    def test_contains_study_element(self) -> None:
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        studies = root.findall("odm:Study", NS)
+        self.assertEqual(len(studies), 1)
+
+    def test_contains_clinical_data_element(self) -> None:
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        cds = root.findall("odm:ClinicalData", NS)
+        self.assertEqual(len(cds), 1)
+
+    def test_study_before_clinical_data(self) -> None:
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        children = list(root)
+        self.assertEqual(children[0].tag, f"{{{ODM_NAMESPACE}}}Study")
+        self.assertEqual(children[1].tag, f"{{{ODM_NAMESPACE}}}ClinicalData")
+
+    def test_study_and_clinical_data_share_oid(self) -> None:
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        study_oid = root.find("odm:Study", NS).get("OID")
+        cd_oid = root.find("odm:ClinicalData", NS).get("StudyOID")
+        self.assertEqual(study_oid, cd_oid)
+
+    def test_clinical_data_has_subject_data(self) -> None:
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        sds = root.findall("odm:ClinicalData/odm:SubjectData", NS)
+        self.assertEqual(len(sds), 1)
+
+    def test_to_etree_returns_element(self) -> None:
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        )
+        root = serializer.to_etree()
+        self.assertIsInstance(root, etree._Element)
+        children = list(root)
+        self.assertEqual(len(children), 2)
+
+    def test_subject_filter(self) -> None:
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+            subject_identifiers=["NONEXISTENT"],
+        )
+        root = etree.fromstring(serializer.to_xml())
+        sds = root.findall("odm:ClinicalData/odm:SubjectData", NS)
+        self.assertEqual(len(sds), 0)
+
+    def test_metadata_version_oid_matches(self) -> None:
+        serializer = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+            metadata_version_oid="MDV.2",
+        )
+        root = etree.fromstring(serializer.to_xml())
+        mdv = root.find("odm:Study/odm:MetaDataVersion", NS)
+        cd = root.find("odm:ClinicalData", NS)
+        self.assertEqual(mdv.get("OID"), "MDV.2")
+        self.assertEqual(cd.get("MetaDataVersionOID"), "MDV.2")
 
 
 class TestSerializeValue(TestCase):
