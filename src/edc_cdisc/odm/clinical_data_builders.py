@@ -231,7 +231,9 @@ def get_subject_visits(
     visit_schedule_name: str,
     subject_identifiers: Iterable[str] | None = None,
 ) -> models.QuerySet:
-    subject_visit_cls = django_apps.get_model("edc_visit_tracking.subjectvisit")
+    from django.conf import settings  # noqa: PLC0415
+
+    subject_visit_cls = django_apps.get_model(settings.SUBJECT_VISIT_MODEL)
     qs = subject_visit_cls.objects.filter(
         visit_schedule_name=visit_schedule_name,
     ).order_by("subject_identifier", "visit_code", "visit_code_sequence")
