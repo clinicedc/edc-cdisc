@@ -132,6 +132,49 @@ ODMTransactionalSerializer
       Return the root ``ODM`` element as an lxml Element tree.
 
 
+DataFrame utilities
+-------------------
+
+.. module:: edc_cdisc.odm.dataframes
+
+.. function:: odm_to_dataframe(source, *, long=False) -> pandas.DataFrame
+
+   Convert ODM ``ClinicalData`` XML to a pandas DataFrame.
+
+   :param source: XML bytes, a file path (``str`` or ``Path``), or raw XML
+       string.
+   :type source: str | bytes | Path
+   :param long: If ``True``, return long format (one row per ``ItemData``).
+       If ``False`` (default), return wide format (one column per
+       ``ItemOID``, one row per subject/event/form).
+   :type long: bool
+   :rtype: pandas.DataFrame
+
+   In long format, the DataFrame has columns: ``subject``, ``event``,
+   ``form``, ``item_group``, ``item``, ``value``.  Transactional XML adds
+   a ``transaction_type`` column.
+
+   In wide format, ``item`` values are pivoted into columns.
+
+.. function:: odm_metadata_to_dataframe(source) -> dict[str, pandas.DataFrame]
+
+   Extract ODM ``Study`` metadata into a dictionary of DataFrames.
+
+   :param source: XML bytes, a file path, or raw XML string.
+   :type source: str | bytes | Path
+   :rtype: dict[str, pandas.DataFrame]
+
+   Returns a dict with keys:
+
+   * ``"study_events"`` --- columns: ``OID``, ``Name``, ``Repeating``, ``Type``
+   * ``"forms"`` --- columns: ``OID``, ``Name``, ``Repeating``
+   * ``"item_groups"`` --- columns: ``OID``, ``Name``, ``Repeating``
+   * ``"items"`` --- columns: ``OID``, ``Name``, ``DataType``,
+     ``CodeListOID`` (when applicable)
+   * ``"code_lists"`` --- columns: ``CodeListOID``, ``CodeListName``,
+     ``CodedValue``, ``Decode``
+
+
 Builder functions
 -----------------
 
@@ -184,3 +227,22 @@ directly for custom XML assembly.
    Return a ``SubjectVisit`` queryset for the given visit schedule, ordered by
    subject, visit code, and sequence.  Optionally filtered by subject
    identifiers.
+
+
+Management commands
+-------------------
+
+``validate_odm_export``
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Run all four export serializers against registered visit schedules, validate
+against the ODM 1.3.1 XSD, and report statistics.
+
+Options:
+
+* ``--visit-schedule NAME`` --- validate a single visit schedule
+* ``--since-days N`` --- transactional lookback in days (default: 30)
+* ``--output-dir PATH`` --- write XML files for inspection
+* ``--skip-xsd`` --- skip XSD validation
+
+See :doc:`validation` for full usage examples.

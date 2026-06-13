@@ -19,5 +19,7 @@ format.
    data_export_snapshot
    data_export_combined
    data_export_transactional
+   pandas_export
+   validation
    odm_mapping
    api
