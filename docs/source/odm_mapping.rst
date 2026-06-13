@@ -1,7 +1,7 @@
 ODM Mapping Reference
 =====================
 
-This page documents how clinicedc constructs are mapped to CDISC ODM 1.3.2
+This page documents how clinicedc constructs are mapped to CDISC ODM 1.3.1
 elements and attributes.
 
 OID conventions

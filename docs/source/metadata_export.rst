@@ -29,7 +29,7 @@ Usage
 What is exported
 ----------------
 
-The output follows the ODM 1.3.2 ``Study`` element hierarchy:
+The output follows the ODM 1.3.1 ``Study`` element hierarchy:
 
 .. code-block:: text
 

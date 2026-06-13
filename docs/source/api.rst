@@ -12,7 +12,7 @@ ODMStudySerializer
 .. class:: ODMStudySerializer(visit_schedule, study_oid="", study_name="", study_description="", metadata_version_oid="MDV.1", metadata_version_name="Version 1")
 
    Export study metadata (visit schedule, CRF definitions, field definitions,
-   code lists) as ODM 1.3.2 XML with ``FileType="Snapshot"``.
+   code lists) as ODM 1.3.1 XML with ``FileType="Snapshot"``.
 
    :param visit_schedule: The clinicedc ``VisitSchedule`` instance to export.
    :type visit_schedule: edc_visit_schedule.visit_schedule.VisitSchedule
@@ -42,7 +42,7 @@ ODMClinicalDataSerializer
 
 .. class:: ODMClinicalDataSerializer(visit_schedule, subject_identifiers=None, study_oid="", metadata_version_oid="MDV.1")
 
-   Export all submitted CRF data as ODM 1.3.2 ``ClinicalData`` XML with
+   Export all submitted CRF data as ODM 1.3.1 ``ClinicalData`` XML with
    ``FileType="Snapshot"``.
 
    :param visit_schedule: The clinicedc ``VisitSchedule`` instance.
@@ -69,7 +69,7 @@ ODMTransactionalSerializer
 
 .. class:: ODMTransactionalSerializer(visit_schedule, since, subject_identifiers=None, study_oid="", metadata_version_oid="MDV.1")
 
-   Export CRF data changed since a cutoff timestamp as ODM 1.3.2
+   Export CRF data changed since a cutoff timestamp as ODM 1.3.1
    ``ClinicalData`` XML with ``FileType="Transactional"``.
 
    Each ``FormData`` element carries a ``TransactionType`` of ``"Insert"``
