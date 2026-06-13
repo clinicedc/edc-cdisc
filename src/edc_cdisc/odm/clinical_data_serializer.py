@@ -20,6 +20,7 @@ from .clinical_data_builders import (
     get_submitted_crf_instances,
 )
 from .constants import ODM_NAMESPACE, ODM_VERSION
+from .serializer import ODMStudySerializer
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -228,3 +229,70 @@ class ODMTransactionalSerializer:
             subject_identifier=subject_identifier,
             study_event_elements=study_event_elements,
         )
+
+
+@dataclass
+class ODMSnapshotSerializer:
+    """Combined Snapshot: Study metadata + ClinicalData in one ODM file."""
+
+    visit_schedule: VisitSchedule
+    subject_identifiers: Iterable[str] | None = None
+    study_oid: str = ""
+    study_name: str = ""
+    study_description: str = ""
+    metadata_version_oid: str = "MDV.1"
+    metadata_version_name: str = "Version 1"
+
+    _protocol_config: ResearchProtocolConfig = field(
+        init=False, repr=False, default_factory=ResearchProtocolConfig
+    )
+
+    def __post_init__(self) -> None:
+        if not self.study_oid:
+            self.study_oid = f"S.{self._protocol_config.protocol}"
+        if not self.study_name:
+            self.study_name = self._protocol_config.project_name
+
+    def to_xml(self) -> bytes:
+        root = self._build_root()
+        return etree.tostring(
+            root,
+            xml_declaration=True,
+            encoding="UTF-8",
+            pretty_print=True,
+        )
+
+    def to_etree(self) -> etree._Element:
+        return self._build_root()
+
+    def _build_root(self) -> etree._Element:
+        now = datetime.now(tz=UTC).isoformat()
+        root = etree.Element(
+            "ODM",
+            nsmap=NSMAP,
+            FileOID=f"{self.study_oid}.ODM.{now}",
+            FileType="Snapshot",
+            CreationDateTime=now,
+            ODMVersion=ODM_VERSION,
+            Originator="clinicedc/edc-cdisc",
+        )
+
+        study_serializer = ODMStudySerializer(
+            visit_schedule=self.visit_schedule,
+            study_oid=self.study_oid,
+            study_name=self.study_name,
+            study_description=self.study_description,
+            metadata_version_oid=self.metadata_version_oid,
+            metadata_version_name=self.metadata_version_name,
+        )
+        root.append(study_serializer._build_study())
+
+        clinical_serializer = ODMClinicalDataSerializer(
+            visit_schedule=self.visit_schedule,
+            subject_identifiers=self.subject_identifiers,
+            study_oid=self.study_oid,
+            metadata_version_oid=self.metadata_version_oid,
+        )
+        root.append(clinical_serializer._build_clinical_data())
+
+        return root

@@ -18,6 +18,7 @@ from lxml import etree
 
 from edc_cdisc.odm import (
     ODMClinicalDataSerializer,
+    ODMSnapshotSerializer,
     ODMStudySerializer,
     ODMTransactionalSerializer,
 )
@@ -172,3 +173,55 @@ class TestXSDTransactionalExport(TestCase):
         if not is_valid:
             errors = "\n".join(str(e) for e in self.schema.error_log)
             self.fail(f"Transactional (insert) XSD validation failed:\n{errors}")
+
+
+@override_settings(SITE_ID=10)
+@time_machine.travel(datetime(2025, 8, 11, 8, 00, tzinfo=utc_tz))
+class TestXSDCombinedSnapshotExport(TestCase):
+    """Validate ODMSnapshotSerializer output against the ODM 1.3.1 XSD."""
+
+    @classmethod
+    def setUpTestData(cls) -> None:
+        import_holidays()
+        add_or_update_django_sites(single_sites=DEFAULT_SITES, verbose=False)
+
+    def setUp(self) -> None:
+        site_consents.registry = {}
+        site_consents.register(consent_v1)
+        site_visit_schedules._registry = {}
+        site_visit_schedules.loaded = False
+        self.visit_schedule = get_visit_schedule(consent_v1)
+        site_visit_schedules.register(self.visit_schedule)
+        self.helper = Helper(now=get_utcnow())
+        self.subject_visit = self.helper.enroll_to_baseline(
+            visit_schedule_name=self.visit_schedule.name,
+            schedule_name="schedule",
+        )
+        self.schema = get_odm_schema()
+
+    def test_combined_empty_validates(self) -> None:
+        """Combined snapshot with no CRFs submitted."""
+        xml_bytes = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+            subject_identifiers=["NONEXISTENT"],
+        ).to_xml()
+        doc = etree.fromstring(xml_bytes)
+        is_valid = self.schema.validate(doc)
+        if not is_valid:
+            errors = "\n".join(str(e) for e in self.schema.error_log)
+            self.fail(f"Combined snapshot (empty) XSD validation failed:\n{errors}")
+
+    def test_combined_with_data_validates(self) -> None:
+        """Combined snapshot with a submitted CRF."""
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        xml_bytes = ODMSnapshotSerializer(
+            visit_schedule=self.visit_schedule,
+        ).to_xml()
+        doc = etree.fromstring(xml_bytes)
+        is_valid = self.schema.validate(doc)
+        if not is_valid:
+            errors = "\n".join(str(e) for e in self.schema.error_log)
+            self.fail(f"Combined snapshot (with data) XSD validation failed:\n{errors}")

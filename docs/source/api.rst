@@ -64,6 +64,42 @@ ODMClinicalDataSerializer
 
       Return the root ``ODM`` element as an lxml Element tree.
 
+ODMSnapshotSerializer
+~~~~~~~~~~~~~~~~~~~~~
+
+.. class:: ODMSnapshotSerializer(visit_schedule, subject_identifiers=None, study_oid="", study_name="", study_description="", metadata_version_oid="MDV.1", metadata_version_name="Version 1")
+
+   Combined Snapshot: export study metadata (``<Study>``) and clinical data
+   (``<ClinicalData>``) in a single ODM 1.3.1 file with
+   ``FileType="Snapshot"``.
+
+   :param visit_schedule: The clinicedc ``VisitSchedule`` instance.
+   :type visit_schedule: edc_visit_schedule.visit_schedule.VisitSchedule
+   :param subject_identifiers: Optional iterable of subject identifiers to
+       include.  ``None`` means all subjects.
+   :type subject_identifiers: Iterable[str] | None
+   :param study_oid: OID for the ``Study`` and ``ClinicalData`` elements.
+       Defaults to ``S.<protocol_name>``.
+   :type study_oid: str
+   :param study_name: Human-readable study name.  Defaults to
+       ``ResearchProtocolConfig.project_name``.
+   :type study_name: str
+   :param study_description: Free-text description for ``GlobalVariables``.
+   :type study_description: str
+   :param metadata_version_oid: OID for the ``MetaDataVersion`` element and
+       ``ClinicalData.MetaDataVersionOID``.
+   :type metadata_version_oid: str
+   :param metadata_version_name: Display name for the ``MetaDataVersion``.
+   :type metadata_version_name: str
+
+   .. method:: to_xml() -> bytes
+
+      Serialize to UTF-8 XML bytes.
+
+   .. method:: to_etree() -> lxml.etree._Element
+
+      Return the root ``ODM`` element as an lxml Element tree.
+
 ODMTransactionalSerializer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
