@@ -1,7 +1,7 @@
 from django.db import models
 
 ODM_NAMESPACE = "http://www.cdisc.org/ns/odm/v1.3"
-ODM_VERSION = "1.3.2"
+ODM_VERSION = "1.3.1"
 
 DJANGO_TO_ODM_DATATYPE: dict[type[models.Field], str] = {
     models.CharField: "text",

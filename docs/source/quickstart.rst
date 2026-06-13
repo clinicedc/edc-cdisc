@@ -2,7 +2,7 @@ Quickstart
 ==========
 
 ``edc-cdisc`` provides three serializers, each producing a different flavour of
-CDISC ODM 1.3.2 XML:
+CDISC ODM 1.3.1 XML:
 
 .. list-table::
    :header-rows: 1

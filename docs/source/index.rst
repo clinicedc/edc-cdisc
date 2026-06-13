@@ -6,7 +6,7 @@ clinical-trial data-collection framework.
 
 ``edc-cdisc`` reads the visit schedule, CRF definitions, and submitted data
 from a clinicedc installation and produces standards-compliant XML in
-`CDISC ODM 1.3.2 <https://www.cdisc.org/standards/data-exchange/odm>`_
+`CDISC ODM 1.3.1 <https://www.cdisc.org/standards/data-exchange/odm>`_
 format.
 
 .. toctree::

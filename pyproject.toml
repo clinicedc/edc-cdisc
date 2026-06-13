@@ -28,6 +28,7 @@ build-backend = "uv_build"
 module-root = "src"
 source-exclude = ["bin"]
 namespace = false
+data-include = ["src/edc_cdisc/odm/schema/**/*.xsd"]
 
 [tool.uv.sources]
 clinicedc = { path = "../clinicedc", editable = true }
