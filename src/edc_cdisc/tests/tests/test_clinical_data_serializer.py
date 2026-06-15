@@ -226,6 +226,40 @@ class TestODMClinicalDataSerializer(TestCase):
         count_filled = len(list(all_filled.iter("ItemData")))
         self.assertEqual(count_with_null, count_filled)
 
+    def test_meta_path_excludes_audit_fields(self) -> None:
+        """Models without a registered admin fall back to the meta path,
+        which must not leak audit/system columns.
+        """
+        crf = CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        fd = build_form_data("clinicedc_tests.crflongitudinalone", crf)
+        oids = {item.get("ItemOID") for item in fd.iter("ItemData")}
+        prefix = "I.clinicedc_tests.crflongitudinalone."
+        for excluded in (
+            "created",
+            "modified",
+            "user_created",
+            "user_modified",
+            "hostname_created",
+            "device_created",
+            "locale_created",
+            "consent_model",
+        ):
+            self.assertNotIn(f"{prefix}{excluded}", oids, msg=excluded)
+
+    def test_meta_path_keeps_id_and_action_fields(self) -> None:
+        crf = CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        fd = build_form_data("clinicedc_tests.crflongitudinalone", crf)
+        oids = {item.get("ItemOID") for item in fd.iter("ItemData")}
+        prefix = "I.clinicedc_tests.crflongitudinalone."
+        for kept in ("id", "action_identifier", "consent_version", "f1"):
+            self.assertIn(f"{prefix}{kept}", oids, msg=kept)
+
     def test_to_etree_returns_element(self) -> None:
         serializer = ODMClinicalDataSerializer(
             visit_schedule=self.visit_schedule,
