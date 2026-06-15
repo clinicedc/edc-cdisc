@@ -112,7 +112,7 @@ ODMSnapshotSerializer
 ODMTransactionalSerializer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. class:: ODMTransactionalSerializer(visit_schedule, since, subject_identifiers=None, study_oid="", metadata_version_oid="MDV.1", include_nulls=False)
+.. class:: ODMTransactionalSerializer(visit_schedule, since, subject_identifiers=None, models=None, study_oid="", metadata_version_oid="MDV.1", include_nulls=False)
 
    Export CRF data changed since a cutoff timestamp as ODM 1.3.1
    ``ClinicalData`` XML with ``FileType="Transactional"``.
@@ -127,6 +127,11 @@ ODMTransactionalSerializer
    :type since: datetime.datetime
    :param subject_identifiers: Optional iterable of subject identifiers.
    :type subject_identifiers: Iterable[str] | None
+   :param models: Restrict the export to one or more CRF models, given in
+       ``label_lower`` format (e.g. ``"meta_subject.followupexamination"``).
+       Accepts a single string or an iterable of strings.  ``None`` (default)
+       exports all models.  Useful for reconciling a single table.
+   :type models: str | Iterable[str] | None
    :param study_oid: OID for the ``ClinicalData`` element.
    :type study_oid: str
    :param metadata_version_oid: OID for the ``MetaDataVersionOID`` attribute.

@@ -383,6 +383,60 @@ class TestODMTransactionalSerializer(TestCase):
         self.assertIsNotNone(fd)
         self.assertEqual(fd.get("TransactionType"), "Update")
 
+    def test_models_filter_includes_matching(self) -> None:
+        """models= as a single label_lower string includes that form."""
+        before_create = get_utcnow()
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=before_create,
+            models="clinicedc_tests.crflongitudinalone",
+        )
+        root = etree.fromstring(serializer.to_xml())
+        fds = root.findall(
+            "odm:ClinicalData/odm:SubjectData/odm:StudyEventData/odm:FormData",
+            NS,
+        )
+        self.assertEqual(len(fds), 1)
+        self.assertEqual(fds[0].get("FormOID"), "F.clinicedc_tests.crflongitudinalone")
+
+    def test_models_filter_excludes_non_matching(self) -> None:
+        """Filtering to a different model omits the unmatched form."""
+        before_create = get_utcnow()
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=before_create,
+            models=["clinicedc_tests.crflongitudinaltwo"],
+        )
+        root = etree.fromstring(serializer.to_xml())
+        sds = root.findall("odm:ClinicalData/odm:SubjectData", NS)
+        self.assertEqual(len(sds), 0)
+
+    def test_models_filter_none_includes_all(self) -> None:
+        """Default models=None exports the form as before."""
+        before_create = get_utcnow()
+        CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        serializer = ODMTransactionalSerializer(
+            visit_schedule=self.visit_schedule,
+            since=before_create,
+        )
+        root = etree.fromstring(serializer.to_xml())
+        fds = root.findall(
+            "odm:ClinicalData/odm:SubjectData/odm:StudyEventData/odm:FormData",
+            NS,
+        )
+        self.assertEqual(len(fds), 1)
+
     def test_snapshot_has_no_transaction_type(self) -> None:
         """Snapshot serializer should NOT have TransactionType."""
         CrfLongitudinalOne.objects.create(

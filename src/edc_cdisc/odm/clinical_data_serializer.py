@@ -146,6 +146,7 @@ class ODMTransactionalSerializer:
     visit_schedule: VisitSchedule
     since: datetime
     subject_identifiers: Iterable[str] | None = None
+    models: str | Iterable[str] | None = None
     study_oid: str = ""
     metadata_version_oid: str = "MDV.1"
     include_nulls: bool = False
@@ -153,10 +154,17 @@ class ODMTransactionalSerializer:
     _protocol_config: ResearchProtocolConfig = field(
         init=False, repr=False, default_factory=ResearchProtocolConfig
     )
+    _models: list[str] | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
         if not self.study_oid:
             self.study_oid = f"S.{self._protocol_config.protocol}"
+        if self.models is None:
+            self._models = None
+        elif isinstance(self.models, str):
+            self._models = [self.models]
+        else:
+            self._models = list(self.models)
 
     def to_xml(self) -> bytes:
         root = self._build_root()
@@ -220,6 +228,8 @@ class ODMTransactionalSerializer:
                 visit.visit_schedule_name,
                 visit.schedule_name,
             )
+            if self._models is not None:
+                metadata_qs = metadata_qs.filter(model__in=self._models)
             changed = get_changed_crf_instances(metadata_qs, since=self.since)
             form_data_elements = [
                 build_form_data(
