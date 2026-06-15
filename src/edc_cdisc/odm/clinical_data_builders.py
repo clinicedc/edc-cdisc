@@ -96,6 +96,7 @@ def build_form_data(
     model_label: str,
     instance: models.Model,
     transaction_type: str | None = None,
+    include_nulls: bool = False,
 ) -> etree._Element:
     model_cls = type(instance)
     attrs: dict[str, str] = {"FormOID": _oid("F", model_label)}
@@ -104,19 +105,41 @@ def build_form_data(
     fd = etree.Element("FormData", **attrs)
     fieldsets = _get_clinical_fieldsets(model_cls)
     if fieldsets:
-        _append_item_groups_from_fieldsets(fd, model_label, model_cls, instance, fieldsets)
+        item_groups = _build_item_groups_from_fieldsets(
+            model_label, model_cls, instance, fieldsets, include_nulls
+        )
     else:
-        _append_item_group_from_meta(fd, model_label, model_cls, instance)
+        item_groups = _build_item_groups_from_meta(
+            model_label, model_cls, instance, include_nulls
+        )
+    for igd in item_groups:
+        fd.append(igd)
     return fd
 
 
-def _append_item_groups_from_fieldsets(
-    fd: etree._Element,
+def _append_item_data(
+    igd: etree._Element,
+    item_oid: str,
+    serialized: str | None,
+    include_nulls: bool,
+) -> None:
+    """Append an ItemData element, or an IsNull placeholder when the value
+    is null and ``include_nulls`` is set.
+    """
+    if serialized is not None:
+        etree.SubElement(igd, "ItemData", ItemOID=item_oid, Value=serialized)
+    elif include_nulls:
+        etree.SubElement(igd, "ItemData", ItemOID=item_oid, IsNull="Yes")
+
+
+def _build_item_groups_from_fieldsets(
     model_label: str,
     model_cls: type[models.Model],
     instance: models.Model,
     fieldsets: list[tuple],
-) -> None:
+    include_nulls: bool = False,
+) -> list[etree._Element]:
+    item_groups: list[etree._Element] = []
     for order, (name, options) in enumerate(fieldsets, start=1):
         section_key = _fieldset_key(model_label, name, order)
         igd = etree.Element(
@@ -130,40 +153,36 @@ def _append_item_groups_from_fieldsets(
             if isinstance(field, (models.ForeignKey, models.OneToOneField)):
                 continue
             value = getattr(instance, field.attname, None)
-            serialized = serialize_value(value)
-            if serialized is not None:
-                etree.SubElement(
-                    igd,
-                    "ItemData",
-                    ItemOID=_oid("I", f"{model_label}.{field.name}"),
-                    Value=serialized,
-                )
+            _append_item_data(
+                igd,
+                _oid("I", f"{model_label}.{field.name}"),
+                serialize_value(value),
+                include_nulls,
+            )
         if len(igd):
-            fd.append(igd)
+            item_groups.append(igd)
+    return item_groups
 
 
-def _append_item_group_from_meta(
-    fd: etree._Element,
+def _build_item_groups_from_meta(
     model_label: str,
     model_cls: type[models.Model],
     instance: models.Model,
-) -> None:
+    include_nulls: bool = False,
+) -> list[etree._Element]:
     igd = etree.Element(
         "ItemGroupData",
         ItemGroupOID=_oid("IG", model_label),
     )
     for model_field in _iter_crf_fields(model_cls):
         value = getattr(instance, model_field.attname, None)
-        serialized = serialize_value(value)
-        if serialized is not None:
-            etree.SubElement(
-                igd,
-                "ItemData",
-                ItemOID=_oid("I", f"{model_label}.{model_field.name}"),
-                Value=serialized,
-            )
-    if len(igd):
-        fd.append(igd)
+        _append_item_data(
+            igd,
+            _oid("I", f"{model_label}.{model_field.name}"),
+            serialize_value(value),
+            include_nulls,
+        )
+    return [igd] if len(igd) else []
 
 
 def _keyed_metadata_qs(

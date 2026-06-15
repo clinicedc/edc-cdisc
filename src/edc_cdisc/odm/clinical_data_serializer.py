@@ -46,6 +46,7 @@ class ODMClinicalDataSerializer:
     subject_identifiers: Iterable[str] | None = None
     study_oid: str = ""
     metadata_version_oid: str = "MDV.1"
+    include_nulls: bool = False
 
     _protocol_config: ResearchProtocolConfig = field(
         init=False, repr=False, default_factory=ResearchProtocolConfig
@@ -116,7 +117,7 @@ class ODMClinicalDataSerializer:
                 schedule_name=visit.schedule_name,
             )
             form_data_elements = [
-                build_form_data(model_label, instance)
+                build_form_data(model_label, instance, include_nulls=self.include_nulls)
                 for model_label, instance in crf_instances
             ]
             if form_data_elements:
@@ -147,6 +148,7 @@ class ODMTransactionalSerializer:
     subject_identifiers: Iterable[str] | None = None
     study_oid: str = ""
     metadata_version_oid: str = "MDV.1"
+    include_nulls: bool = False
 
     _protocol_config: ResearchProtocolConfig = field(
         init=False, repr=False, default_factory=ResearchProtocolConfig
@@ -224,6 +226,7 @@ class ODMTransactionalSerializer:
                     model_label,
                     instance,
                     transaction_type=txn_type,
+                    include_nulls=self.include_nulls,
                 )
                 for model_label, instance, txn_type in changed
             ]
@@ -254,6 +257,7 @@ class ODMSnapshotSerializer:
     study_description: str = ""
     metadata_version_oid: str = "MDV.1"
     metadata_version_name: str = "Version 1"
+    include_nulls: bool = False
 
     _protocol_config: ResearchProtocolConfig = field(
         init=False, repr=False, default_factory=ResearchProtocolConfig
@@ -304,6 +308,7 @@ class ODMSnapshotSerializer:
             subject_identifiers=self.subject_identifiers,
             study_oid=self.study_oid,
             metadata_version_oid=self.metadata_version_oid,
+            include_nulls=self.include_nulls,
         )
         root.append(clinical_serializer._build_clinical_data())
 

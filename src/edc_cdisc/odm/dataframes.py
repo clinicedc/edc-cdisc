@@ -93,8 +93,8 @@ def _parse_source(source: str | bytes | Path) -> etree._Element:
     return etree.fromstring(source.encode())
 
 
-def _extract_item_rows(doc: etree._Element) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
+def _extract_item_rows(doc: etree._Element) -> list[dict[str, str | None]]:
+    rows: list[dict[str, str | None]] = []
     for sd in doc.findall(".//odm:SubjectData", NS):
         subj = sd.get("SubjectKey", "")
         for se in sd.findall("odm:StudyEventData", NS):
@@ -107,13 +107,14 @@ def _extract_item_rows(doc: etree._Element) -> list[dict[str, str]]:
                 for ig in fd.findall("odm:ItemGroupData", NS):
                     ig_oid = ig.get("ItemGroupOID", "")
                     for item in ig.findall("odm:ItemData", NS):
-                        row: dict[str, str] = {
+                        is_null = item.get("IsNull") == "Yes"
+                        row: dict[str, str | None] = {
                             "subject": subj,
                             "event": event_key,
                             "form": form,
                             "item_group": ig_oid,
                             "item": item.get("ItemOID", ""),
-                            "value": item.get("Value", ""),
+                            "value": None if is_null else item.get("Value", ""),
                         }
                         if txn:
                             row["transaction_type"] = txn

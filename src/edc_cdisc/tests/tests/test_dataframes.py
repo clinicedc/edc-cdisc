@@ -1,6 +1,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import pandas as pd
 import time_machine
 from clinicedc_tests.consents import consent_v1
 from clinicedc_tests.helper import Helper
@@ -190,3 +191,31 @@ class TestOdmToDataframe(TestCase):
         ).to_xml()
         df = odm_to_dataframe(xml_bytes)
         self.assertEqual(len(df), 1)
+
+
+class TestOdmToDataframeIsNull(TestCase):
+    """IsNull='Yes' ItemData should surface as a null value in the long df."""
+
+    XML = (
+        b'<ODM xmlns="http://www.cdisc.org/ns/odm/v1.3" FileType="Snapshot">'
+        b'<ClinicalData StudyOID="S.X" MetaDataVersionOID="MDV.1">'
+        b'<SubjectData SubjectKey="100-0001">'
+        b'<StudyEventData StudyEventOID="SE.1000">'
+        b'<FormData FormOID="F.app.model">'
+        b'<ItemGroupData ItemGroupOID="IG.app.model">'
+        b'<ItemData ItemOID="I.app.model.f1" Value="12"/>'
+        b'<ItemData ItemOID="I.app.model.f2" IsNull="Yes"/>'
+        b"</ItemGroupData></FormData></StudyEventData>"
+        b"</SubjectData></ClinicalData></ODM>"
+    )
+
+    def test_isnull_value_is_na(self) -> None:
+        df = odm_to_dataframe(self.XML, long=True)
+        f2 = df[df["item"] == "I.app.model.f2"].iloc[0]
+        self.assertTrue(pd.isna(f2["value"]))
+
+    def test_isnull_row_still_present(self) -> None:
+        df = odm_to_dataframe(self.XML, long=True)
+        self.assertEqual(len(df), 2)
+        f1 = df[df["item"] == "I.app.model.f1"].iloc[0]
+        self.assertEqual(f1["value"], "12")

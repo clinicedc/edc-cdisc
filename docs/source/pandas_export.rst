@@ -58,6 +58,34 @@ Transactional data includes a ``transaction_type`` column (``Insert`` or
    inserts = df[df["transaction_type"] == "Insert"]
 
 
+Null values and reconciliation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+By default, null CRF fields are **omitted** from the export, so each form
+instance contributes a variable number of ``ItemData`` rows (only the answered
+fields).  This makes row counts hard to reconcile against source tables.
+
+Pass ``include_nulls=True`` to emit an ``ItemData`` for every defined field,
+using ``IsNull="Yes"`` for nulls.  Each form instance then contributes a
+**fixed** number of rows, and null values surface as ``NaN`` in the DataFrame:
+
+.. code-block:: python
+
+   xml = ODMClinicalDataSerializer(
+       visit_schedule=visit_schedule, include_nulls=True
+   ).to_xml()
+   df = odm_to_dataframe(xml, long=True)
+
+   # Count form instances (not item rows):
+   n_forms = (
+       df[df["form"] == "F.myapp.mymodel"]
+       .groupby(["subject", "event"])
+       .ngroups
+   )
+
+   # Answered (non-null) values only:
+   answered = df[df["value"].notna()]
+
 Reading from files
 ~~~~~~~~~~~~~~~~~~
 
