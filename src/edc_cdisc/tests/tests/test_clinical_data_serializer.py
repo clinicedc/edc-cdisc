@@ -21,7 +21,7 @@ from edc_cdisc.odm import (
     ODMSnapshotSerializer,
     ODMTransactionalSerializer,
 )
-from edc_cdisc.odm.clinical_data_builders import serialize_value
+from edc_cdisc.odm.clinical_data_builders import build_form_data, serialize_value
 from edc_cdisc.odm.constants import ODM_NAMESPACE
 
 NS = {"odm": ODM_NAMESPACE}
@@ -181,6 +181,50 @@ class TestODMClinicalDataSerializer(TestCase):
         for item in items:
             self.assertIsNotNone(item.get("ItemOID"))
             self.assertIsNotNone(item.get("Value"))
+
+    def test_null_field_omitted_by_default(self) -> None:
+        crf = CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        crf.f1 = None
+        fd = build_form_data("clinicedc_tests.crflongitudinalone", crf)
+        oids = [item.get("ItemOID") for item in fd.iter("ItemData")]
+        self.assertNotIn("I.clinicedc_tests.crflongitudinalone.f1", oids)
+
+    def test_null_field_emits_isnull_when_included(self) -> None:
+        crf = CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        crf.f1 = None
+        fd = build_form_data("clinicedc_tests.crflongitudinalone", crf, include_nulls=True)
+        f1_items = [
+            item
+            for item in fd.iter("ItemData")
+            if item.get("ItemOID") == "I.clinicedc_tests.crflongitudinalone.f1"
+        ]
+        self.assertEqual(len(f1_items), 1)
+        self.assertEqual(f1_items[0].get("IsNull"), "Yes")
+        self.assertIsNone(f1_items[0].get("Value"))
+
+    def test_include_nulls_fixed_item_count(self) -> None:
+        """Every form instance emits the same number of ItemData."""
+        crf = CrfLongitudinalOne.objects.create(
+            subject_visit=self.subject_visit,
+            report_datetime=self.subject_visit.report_datetime,
+        )
+        crf.f1 = None
+        with_nulls = build_form_data(
+            "clinicedc_tests.crflongitudinalone", crf, include_nulls=True
+        )
+        crf.f1 = "value"
+        all_filled = build_form_data(
+            "clinicedc_tests.crflongitudinalone", crf, include_nulls=True
+        )
+        count_with_null = len(list(with_nulls.iter("ItemData")))
+        count_filled = len(list(all_filled.iter("ItemData")))
+        self.assertEqual(count_with_null, count_filled)
 
     def test_to_etree_returns_element(self) -> None:
         serializer = ODMClinicalDataSerializer(

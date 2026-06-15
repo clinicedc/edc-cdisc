@@ -40,7 +40,7 @@ ODMStudySerializer
 ODMClinicalDataSerializer
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. class:: ODMClinicalDataSerializer(visit_schedule, subject_identifiers=None, study_oid="", metadata_version_oid="MDV.1")
+.. class:: ODMClinicalDataSerializer(visit_schedule, subject_identifiers=None, study_oid="", metadata_version_oid="MDV.1", include_nulls=False)
 
    Export all submitted CRF data as ODM 1.3.1 ``ClinicalData`` XML with
    ``FileType="Snapshot"``.
@@ -55,6 +55,11 @@ ODMClinicalDataSerializer
    :type study_oid: str
    :param metadata_version_oid: OID for the ``MetaDataVersionOID`` attribute.
    :type metadata_version_oid: str
+   :param include_nulls: When ``True``, null fields are emitted as
+       ``<ItemData IsNull="Yes"/>`` instead of being omitted, so every
+       form instance carries a fixed number of ``ItemData`` children.
+       Defaults to ``False`` (sparse output).
+   :type include_nulls: bool
 
    .. method:: to_xml() -> bytes
 
@@ -67,7 +72,7 @@ ODMClinicalDataSerializer
 ODMSnapshotSerializer
 ~~~~~~~~~~~~~~~~~~~~~
 
-.. class:: ODMSnapshotSerializer(visit_schedule, subject_identifiers=None, study_oid="", study_name="", study_description="", metadata_version_oid="MDV.1", metadata_version_name="Version 1")
+.. class:: ODMSnapshotSerializer(visit_schedule, subject_identifiers=None, study_oid="", study_name="", study_description="", metadata_version_oid="MDV.1", metadata_version_name="Version 1", include_nulls=False)
 
    Combined Snapshot: export study metadata (``<Study>``) and clinical data
    (``<ClinicalData>``) in a single ODM 1.3.1 file with
@@ -91,6 +96,10 @@ ODMSnapshotSerializer
    :type metadata_version_oid: str
    :param metadata_version_name: Display name for the ``MetaDataVersion``.
    :type metadata_version_name: str
+   :param include_nulls: When ``True``, null fields are emitted as
+       ``<ItemData IsNull="Yes"/>`` instead of being omitted.  Defaults to
+       ``False``.
+   :type include_nulls: bool
 
    .. method:: to_xml() -> bytes
 
@@ -103,7 +112,7 @@ ODMSnapshotSerializer
 ODMTransactionalSerializer
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. class:: ODMTransactionalSerializer(visit_schedule, since, subject_identifiers=None, study_oid="", metadata_version_oid="MDV.1")
+.. class:: ODMTransactionalSerializer(visit_schedule, since, subject_identifiers=None, study_oid="", metadata_version_oid="MDV.1", include_nulls=False)
 
    Export CRF data changed since a cutoff timestamp as ODM 1.3.1
    ``ClinicalData`` XML with ``FileType="Transactional"``.
@@ -122,6 +131,10 @@ ODMTransactionalSerializer
    :type study_oid: str
    :param metadata_version_oid: OID for the ``MetaDataVersionOID`` attribute.
    :type metadata_version_oid: str
+   :param include_nulls: When ``True``, null fields are emitted as
+       ``<ItemData IsNull="Yes"/>`` instead of being omitted.  Defaults to
+       ``False``.
+   :type include_nulls: bool
 
    .. method:: to_xml() -> bytes
 
