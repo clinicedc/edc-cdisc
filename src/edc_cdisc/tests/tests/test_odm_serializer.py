@@ -1,4 +1,5 @@
 from clinicedc_tests.consents import consent_v1
+from clinicedc_tests.models import CrfOne
 from clinicedc_tests.visit_schedules.visit_schedule import (
     get_visit_schedule,
 )
@@ -7,7 +8,11 @@ from edc_visit_schedule.visit import Crf, CrfCollection
 from lxml import etree
 
 from edc_cdisc.odm import ODMStudySerializer
-from edc_cdisc.odm.builders import collect_common_models
+from edc_cdisc.odm.builders import (
+    _fieldset_key,
+    _get_field_by_name,
+    collect_common_models,
+)
 from edc_cdisc.odm.constants import ODM_NAMESPACE, ODM_VERSION
 
 NS = {"odm": ODM_NAMESPACE}
@@ -296,6 +301,18 @@ class TestODMStudySerializer(TestCase):
         )
         self.assertGreater(len(igds), 0)
 
+    def test_item_group_oids_are_unique(self) -> None:
+        serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
+        root = etree.fromstring(serializer.to_xml())
+        oids = [
+            igd.get("OID")
+            for igd in root.findall(
+                "odm:Study/odm:MetaDataVersion/odm:ItemGroupDef",
+                NS,
+            )
+        ]
+        self.assertEqual(len(oids), len(set(oids)))
+
     def test_item_defs_exist(self) -> None:
         serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
         root = etree.fromstring(serializer.to_xml())
@@ -387,3 +404,22 @@ class TestODMStudySerializer(TestCase):
         serializer = ODMStudySerializer(visit_schedule=self.visit_schedule)
         root = etree.fromstring(serializer.to_xml())
         self.assertEqual(root.get("Originator"), "clinicedc/edc-cdisc")
+
+
+class TestBuilderHelpers(TestCase):
+    def test_fieldset_key_disambiguates_duplicate_names(self) -> None:
+        """Same fieldset name at different positions must not collide."""
+        first = _fieldset_key("myapp.mymodel", "Part 1", 1)
+        second = _fieldset_key("myapp.mymodel", "Part 1", 2)
+        self.assertNotEqual(first, second)
+
+    def test_fieldset_key_unnamed_uses_order(self) -> None:
+        key = _fieldset_key("myapp.mymodel", None, 3)
+        self.assertEqual(key, "myapp.mymodel.section_3")
+
+    def test_get_field_by_name_returns_field(self) -> None:
+        field = _get_field_by_name(CrfOne, "report_datetime")
+        self.assertIsNotNone(field)
+
+    def test_get_field_by_name_unknown_returns_none(self) -> None:
+        self.assertIsNone(_get_field_by_name(CrfOne, "does_not_exist"))

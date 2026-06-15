@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from django.apps import apps as django_apps
 from django.contrib.admin.sites import all_sites
+from django.core.exceptions import FieldDoesNotExist
 from django.db import models
 from lxml import etree
 
@@ -72,7 +73,7 @@ def _get_clinical_fieldsets(
 def _get_field_by_name(model_cls: type[models.Model], field_name: str) -> models.Field | None:
     try:
         return model_cls._meta.get_field(field_name)
-    except Exception:
+    except FieldDoesNotExist:
         return None
 
 
@@ -363,7 +364,7 @@ def _build_item_group_def_from_meta(
 def _fieldset_key(model_label: str, name: str | None, order: int) -> str:
     if name:
         slug = str(name).lower().replace(" ", "_")
-        return f"{model_label}.{slug}"
+        return f"{model_label}.{slug}.{order}"
     return f"{model_label}.section_{order}"
 
 
