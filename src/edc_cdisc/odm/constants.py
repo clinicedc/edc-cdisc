@@ -1,4 +1,5 @@
 from django.db import models
+from django_audit_fields.constants import AUDIT_MODEL_FIELDS
 
 ODM_NAMESPACE = "http://www.cdisc.org/ns/odm/v1.3"
 ODM_VERSION = "1.3.1"
@@ -41,9 +42,17 @@ EXCLUDED_FIELDSET_NAMES = frozenset(
     }
 )
 
+# System/provenance columns that must never appear in a data export.
+# AUDIT_MODEL_FIELDS = created, modified, user_created, user_modified,
+# hostname_*, device_*, locale_* (the django_audit_fields system columns).
+# "consent_model" is consent provenance, not a CRF answer. Note that
+# "id", "revision", "consent_version", and the action_* identifiers are
+# intentionally NOT excluded.
 EXCLUDED_FIELD_NAMES = frozenset(
     {
         "subject_visit",
         "related_visit",
+        "consent_model",
+        *AUDIT_MODEL_FIELDS,
     }
 )
