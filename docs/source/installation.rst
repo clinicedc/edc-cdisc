@@ -28,6 +28,13 @@ Or add to your ``pyproject.toml``:
    ]
 
 ``edc-cdisc`` does not define any Django models and does not need to be added
-to ``INSTALLED_APPS``.  It reads the existing clinicedc models
-(``edc_visit_tracking.SubjectVisit``, ``edc_metadata.CrfMetadata``, etc.) at
-runtime through ``django.apps.apps.get_model``.
+to ``INSTALLED_APPS``.  It reads the existing clinicedc constructs — the
+registered ``VisitSchedule``, the CRF ``ModelAdmin`` fieldsets, and the
+``SubjectVisit`` / CRF instances — at runtime.
+
+.. note::
+
+   Every CRF model in the visit schedule must have a registered
+   ``ModelAdmin`` whose fieldsets reference only real model fields.  The
+   serializers read those fieldsets to build the form/item definitions and
+   will raise if an admin is missing or a fieldset lists a non-field.

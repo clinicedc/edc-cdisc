@@ -1,72 +1,55 @@
 Combined Snapshot Export
 ========================
 
-``ODMSnapshotSerializer`` produces a single ODM file containing both the study
-metadata (``<Study>``) and all submitted clinical data (``<ClinicalData>``).
-This is the format most commonly expected by receiving systems that need a
-self-describing data package.
+``SnapshotSerializer`` produces a single ODM document containing both the
+study metadata (``<Study>``) and the submitted data (``<ClinicalData>``).
+This is the format most commonly expected by a receiving system, and the
+right shape for an external auditor — it is self-describing and self-validating.
 
 Usage
 -----
 
 .. code-block:: python
 
-   from edc_cdisc.odm import ODMSnapshotSerializer
+   from edc_cdisc.serializers import SnapshotSerializer
 
-   serializer = ODMSnapshotSerializer(
+   xml_bytes = SnapshotSerializer(
+       edc_module_name="meta_edc",
        visit_schedule=visit_schedule,
-       study_oid="S.EFFECT",                  # optional
-       study_name="EFFECT Trial",             # optional
-       study_description="A phase III trial", # optional
-       metadata_version_oid="MDV.1",          # optional
-       metadata_version_name="Version 1",     # optional
-       subject_identifiers=["100-0001"],       # optional filter
-   )
-   xml_bytes = serializer.to_xml()
+       subject_identifiers=["100-0001"],   # optional
+       include_nulls=True,                 # optional
+   ).to_xml()
 
-
-What is exported
+Output structure
 ----------------
-
-The output follows this ODM element hierarchy:
 
 .. code-block:: text
 
-   ODM (FileType="Snapshot")
-     Study                     (study metadata)
+   ODM
+     Study
        GlobalVariables
-       MetaDataVersion
-         Protocol
-         StudyEventDef ...
-         FormDef ...
-         ItemGroupDef ...
-         ItemDef ...
-         CodeList ...
-     ClinicalData              (submitted CRF values)
+       MetaDataVersion  (OID="MDV.<fp>")
+       ...
+     ClinicalData  (StudyOID="S.<protocol>" MetaDataVersionOID="MDV.<fp>")
        SubjectData ...
-         StudyEventData ...
-           FormData ...
-             ItemGroupData ...
-               ItemData ...
 
-The ``Study`` element is identical to what ``ODMStudySerializer`` produces.
-The ``ClinicalData`` element is identical to what ``ODMClinicalDataSerializer``
-produces.  Both share the same ``StudyOID`` and ``MetaDataVersionOID`` so the
-receiving system can link data to definitions.
+Internally it composes a ``MetadataSerializer`` and a
+``ClinicalDataSerializer`` with the same arguments and appends both results
+under one ``<ODM>`` root.  Because the ``MetaDataVersion`` fingerprint is
+deterministic, the ``ClinicalData/@MetaDataVersionOID`` always equals the
+``MetaDataVersion/@OID`` in the same file.
 
+Validation
+----------
 
-When to use this vs. separate serializers
------------------------------------------
+A combined snapshot is the right document for the full integrity check,
+because the data's OID references resolve against the metadata definitions in
+the *same* file:
 
-.. list-table::
-   :header-rows: 1
-   :widths: 50 50
+.. code-block:: python
 
-   * - Use ``ODMSnapshotSerializer``
-     - Use separate serializers
-   * - Self-contained export file that a receiver can process without prior
-       knowledge of the study structure
-     - Metadata and data are exchanged independently (e.g. metadata sent once,
-       data sent repeatedly)
-   * - Regulatory submissions or archival
-     - Incremental data feeds (use ``ODMTransactionalSerializer`` instead)
+   from edc_cdisc import validate_odm
+
+   assert validate_odm(xml_bytes) == []   # XSD-valid AND every ref resolves
+
+See :doc:`validation`.

@@ -1,44 +1,115 @@
 ODM Mapping Reference
 =====================
 
-This page documents how clinicedc constructs are mapped to CDISC ODM 1.3.1
-elements and attributes.
+How clinicedc constructs map to CDISC ODM 1.3.1 elements and attributes.
 
 OID conventions
 ---------------
 
-All OIDs follow a prefix-dot-key pattern:
+All OIDs follow a prefix-dot-key pattern.
 
 .. list-table::
    :header-rows: 1
-   :widths: 10 35 55
+   :widths: 10 38 52
 
    * - Prefix
      - Example
      - Source
    * - ``S.``
-     - ``S.EFFECT``
-     - Protocol name
+     - ``S.META``
+     - Protocol name (``Study`` / ``ClinicalData``)
+   * - ``MDV.``
+     - ``MDV.9f1c2a4b6d8e``
+     - SHA-256 fingerprint of the ``MetaDataVersion`` content
    * - ``SE.``
      - ``SE.1000``
-     - ``visit.visit_code``
+     - ``visit.code`` — **scheduled** study event
+   * - ``UE.``
+     - ``UE.1000``
+     - ``visit.code`` — **unscheduled** study event
+   * - ``CE.``
+     - ``CE.meta_ae.deathreport``
+     - common (death / offstudy) model label
    * - ``F.``
-     - ``F.effect_subject.bloodresults``
+     - ``F.meta_subject.bloodresults``
      - ``app_label.model_name``
    * - ``IG.``
-     - ``IG.effect_subject.bloodresults``
-     - Model label (no fieldsets) or fieldset section key
+     - ``IG.meta_subject.bloodresults.haematology.1``
+     - ``app_label.model_name`` + fieldset section slug + order
    * - ``I.``
-     - ``I.effect_subject.bloodresults.hb``
+     - ``I.meta_subject.bloodresults.hb``
      - ``app_label.model_name.field_name``
    * - ``CL.``
-     - ``CL.effect_subject.bloodresults.hb_units``
-     - Model label + field name
+     - ``CL.meta_subject.bloodresults.hb_units``
+     - ``app_label.model_name.field_name``
+
+Study events
+------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 14 12 52
+
+   * - Source
+     - ODM Type
+     - Repeating
+     - Notes
+   * - Scheduled visit
+     - ``Scheduled``
+     - ``No``
+     - ``SE.<code>``; ``FormRef``\s = ``crfs`` + missed CRF + remaining PRNs
+   * - Unscheduled visit
+     - ``Unscheduled``
+     - ``Yes``
+     - ``UE.<code>``; built per visit that defines ``crfs_unscheduled``
+   * - Death report / offstudy
+     - ``Common``
+     - ``No``
+     - ``CE.<model>``; abstract / unregistered models are skipped
+
+Every ``StudyEventDef`` carries an ``<Alias Context="clinicedc.schedule"
+Name="…"/>`` identifying the schedule it belongs to.  In the data,
+``StudyEventData`` maps a ``SubjectVisit`` to ``SE.<code>`` when
+``visit_code_sequence == 0`` and to ``UE.<code>`` with a
+``StudyEventRepeatKey`` when it is ``> 0``.
+
+Fieldset mapping
+----------------
+
+Each CRF model **must** have a registered ``ModelAdmin``.  Its ``fieldsets``
+provide the field ordering and grouping:
+
+* Each fieldset ``(name, {"fields": [...]})`` becomes one ``ItemGroupDef``.
+* The ``ItemGroupOID`` includes the fieldset's positional order, so two
+  sections that slugify to the same name still get unique OIDs.
+* Fieldsets named ``"Audit"`` or ``"Action"`` are excluded.
+
+The data side (``FormData`` → ``ItemGroupData`` → ``ItemData``) walks the
+**same** fieldsets, so every ``ItemData`` OID resolves to an ``ItemDef``.
+
+Excluded fields
+---------------
+
+These are dropped from both the metadata and the data:
+
+* ``subject_visit`` and ``related_visit`` — structural foreign keys.
+* ``consent_model`` — consent provenance, not a CRF answer.
+* The ``AuditModelMixin`` system columns — ``user_created``,
+  ``user_modified``, ``hostname_*``, ``device_*``, ``locale_*`` — **except**
+  ``created`` and ``modified``, which are retained.
+
+.. note::
+
+   Other ``ForeignKey`` / ``OneToOneField`` fields are currently emitted as
+   text (the stored UUID), using ``field.name`` for the OID and
+   ``field.attname`` for the value.  This is a temporary measure; proper
+   relation handling (FK → coded value, M2M → repeating items, list models)
+   is planned.
 
 Django field type mapping
 -------------------------
 
-Django model field types are mapped to ODM ``DataType`` values:
+Django model field types map to ODM ``DataType`` values:
 
 ===============================  ==============
 Django field                     ODM DataType
@@ -57,7 +128,6 @@ Django field                     ODM DataType
 ``FloatField``                   ``float``
 ``DecimalField``                 ``float``
 ``BooleanField``                 ``boolean``
-``NullBooleanField``             ``boolean``
 ``DateField``                    ``date``
 ``DateTimeField``                ``datetime``
 ``TimeField``                    ``time``
@@ -66,90 +136,26 @@ Django field                     ODM DataType
 ``FilePathField``                ``URI``
 ``EmailField``                   ``text``
 ``URLField``                     ``URI``
-``IPAddressField``               ``text``
-``GenericIPAddressField``        ``text``
 ``BinaryField``                  ``hexBinary``
 ``DurationField``                ``text``
 ``JSONField``                    ``text``
 ===============================  ==============
 
-Fieldset mapping
-----------------
-
-When a ``ModelAdmin`` with ``fieldsets`` is registered for a CRF model, the
-fieldset structure is used to create ``ItemGroupDef`` / ``ItemGroupData``
-sections:
-
-* Each fieldset tuple ``(name, {"fields": [...]})`` becomes one
-  ``ItemGroupDef``.
-* The ``ItemGroupOID`` is derived from the model label, fieldset name, and
-  positional order to ensure uniqueness.
-* Fieldsets named ``"Audit"`` or ``"Action"`` are excluded (these contain
-  system columns, not clinical data).
-
-If no ``ModelAdmin`` fieldsets are found, a single ``ItemGroupDef`` is created
-containing all non-excluded fields from ``Model._meta.get_fields()``.
-
-Excluded fields
----------------
-
-The following fields are always excluded from ODM output:
-
-* ``subject_visit`` --- the foreign key to ``SubjectVisit`` (structural, not
-  clinical data)
-* ``related_visit`` --- the related-visit foreign key
-* All ``ForeignKey`` and ``OneToOneField`` relations (structural references)
-* All fields in the ``AuditModelMixin`` (``created``, ``modified``,
-  ``user_created``, ``user_modified``, ``hostname_*``, ``device_*``,
-  ``locale_*``) --- these are system columns
+Anything not listed defaults to ``text``.
 
 Code lists
 ----------
 
-Fields with ``choices`` defined produce ``CodeList`` elements:
+Fields with ``choices`` produce ``CodeList`` elements, and the corresponding
+``ItemDef`` references them via a ``CodeListRef``:
 
 .. code-block:: xml
 
-   <CodeList OID="CL.myapp.mymodel.status" Name="status" DataType="text">
+   <CodeList OID="CL.myapp.mymodel.status" Name="status choices" DataType="text">
      <CodeListItem CodedValue="alive">
-       <Decode><TranslatedText>Alive</TranslatedText></Decode>
+       <Decode><TranslatedText xml:lang="en">Alive</TranslatedText></Decode>
      </CodeListItem>
      <CodeListItem CodedValue="dead">
-       <Decode><TranslatedText>Dead</TranslatedText></Decode>
+       <Decode><TranslatedText xml:lang="en">Dead</TranslatedText></Decode>
      </CodeListItem>
    </CodeList>
-
-The corresponding ``ItemDef`` references the code list via a ``CodeListRef``
-child element.
-
-StudyEventDef types
--------------------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 20 20 15 45
-
-   * - Source
-     - ODM Type
-     - Repeating
-     - Notes
-   * - Scheduled visit
-     - ``Scheduled``
-     - ``No``
-     - One per ``Visit`` in schedule
-   * - PRN CRFs
-     - *(within parent scheduled event)*
-     - n/a
-     - ``Mandatory="No"`` on ``FormRef``
-   * - Unscheduled collections
-     - ``Unscheduled``
-     - ``Yes``
-     - Deduplicated by CRF content
-   * - Death report
-     - ``Common``
-     - ``No``
-     - From ``visit_schedule.death_report_model``
-   * - Offstudy
-     - ``Common``
-     - ``No``
-     - From ``visit_schedule.offstudy_model``

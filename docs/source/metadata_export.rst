@@ -1,11 +1,11 @@
 Metadata Export
 ===============
 
-``ODMStudySerializer`` exports the study definition as ODM XML.  This is the
-structural blueprint of the study --- visit schedules, CRF forms, field
-definitions, and code lists --- without any subject data.
+``MetadataSerializer`` exports the study definition as ODM XML — the
+structural blueprint of the study (visit schedule, CRF forms, field
+definitions, and code lists) without any subject data.
 
-A receiving system can use this file to understand the shape of the data before
+A receiving system uses this file to understand the shape of the data before
 importing clinical records.
 
 Usage
@@ -13,98 +13,70 @@ Usage
 
 .. code-block:: python
 
-   from edc_cdisc.odm import ODMStudySerializer
+   from edc_cdisc.serializers import MetadataSerializer
 
-   serializer = ODMStudySerializer(
+   xml_bytes = MetadataSerializer(
+       edc_module_name="meta_edc",
        visit_schedule=visit_schedule,
-       study_oid="S.EFFECT",                  # optional, defaults to protocol name
-       study_name="EFFECT Trial",             # optional, defaults to project name
-       study_description="A phase III trial", # optional
-       metadata_version_oid="MDV.1",          # optional
-       metadata_version_name="Version 1",     # optional
-   )
-   xml_bytes = serializer.to_xml()
+       protocol_oid="S.META",            # optional, defaults to S.<protocol>
+       protocol_name="META Trial",       # optional
+   ).to_xml()
 
-
-What is exported
+Output structure
 ----------------
-
-The output follows the ODM 1.3.1 ``Study`` element hierarchy:
 
 .. code-block:: text
 
    ODM
-     Study
+     Study  (OID="S.<protocol>")
        GlobalVariables
-         StudyName
-         StudyDescription
-         ProtocolName
-       MetaDataVersion
+         StudyName / StudyDescription / ProtocolName
+       MetaDataVersion  (OID="MDV.<fingerprint>")
          Protocol
-           StudyEventRef ...          (one per scheduled visit)
-           StudyEventRef ...          (one per unscheduled collection)
-           StudyEventRef ...          (one per common event)
-         StudyEventDef ...            (scheduled visits)
-           FormRef ...                (each CRF in the visit, scheduled + PRN)
-         StudyEventDef ...            (unscheduled, Repeating="Yes")
-         StudyEventDef ...            (common events: offstudy, death report)
-         FormDef ...                  (one per unique CRF model)
+           StudyEventRef ...        (scheduled / unscheduled / common)
+         StudyEventDef ...          (one per scheduled visit, unscheduled
+                                     collection, and common event)
+           FormRef ...
+           Alias  (Context="clinicedc.schedule")
+         FormDef ...                (one per CRF / requisition / common model)
            ItemGroupRef ...
-         ItemGroupDef ...             (fieldset sections, or one per form)
+         ItemGroupDef ...           (one per admin fieldset section)
            ItemRef ...
-         ItemDef ...                  (one per CRF field)
-         CodeList ...                 (choice fields with CodeListItem entries)
+         ItemDef ...                (one per field)
+         CodeList ...               (choice fields)
 
-Scheduled visits
-~~~~~~~~~~~~~~~~
+Study events
+~~~~~~~~~~~~
 
-Each ``Visit`` in the visit schedule produces a ``StudyEventDef`` with:
+Each ``Visit`` produces a ``StudyEventDef``:
 
-* ``OID`` = ``SE.<visit_code>`` (e.g. ``SE.1000`` for baseline)
-* ``Type`` = ``"Scheduled"``
-* ``Repeating`` = ``"No"``
-* ``FormRef`` entries for all CRFs in ``visit.crfs`` (``Mandatory="Yes"``)
-  and ``visit.crfs_prn`` (``Mandatory="No"``), deduplicated.
+* **Scheduled** — ``OID="SE.<visit_code>"``, ``Type="Scheduled"``.  Its
+  ``FormRef`` entries are the visit's CRFs (plus missed-visit and remaining
+  PRN CRFs).
+* **Unscheduled** — ``OID="UE.<visit_code>"``, ``Type="Unscheduled"`` (built
+  only for visits that define unscheduled CRFs).
+* **Common** — ``OID="CE.<model>"``, ``Type="Common"`` — the
+  ``death_report_model`` and ``offstudy_model``.  An abstract / unregistered
+  common model is silently skipped.
 
-PRN CRFs
-~~~~~~~~
+Every ``StudyEventDef`` carries an ``<Alias Context="clinicedc.schedule">``
+naming the schedule it belongs to, so multi-schedule (adaptive) studies keep
+their grouping even though ODM's ``Protocol`` is a flat list.
 
-PRN CRFs are included in their parent visit's ``StudyEventDef`` with
-``Mandatory="No"``.  If a PRN CRF also appears in the scheduled collection for
-that visit, only the scheduled (``Mandatory="Yes"``) entry is kept.
+Form / item definitions
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-Unscheduled visits
-~~~~~~~~~~~~~~~~~~
+Fields are read from the registered ``ModelAdmin``'s fieldsets, which provide
+the authoritative ordering and grouping clinicians see during data entry.
+Each fieldset section becomes an ``ItemGroupDef``; each field becomes an
+``ItemDef`` (mapped to an ODM ``DataType`` — see :doc:`odm_mapping`).  Choice
+fields produce ``CodeList`` elements.
 
-Unscheduled CRF collections (``visit.crfs_unscheduled``) are exported as
-separate ``StudyEventDef`` elements with:
+The ``MetaDataVersion`` OID
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* ``Type`` = ``"Unscheduled"``
-* ``Repeating`` = ``"Yes"``
-
-Collections are deduplicated by their CRF content, so identical unscheduled
-collections across visits produce a single definition.
-
-Common events
-~~~~~~~~~~~~~
-
-Models referenced by ``visit_schedule.death_report_model`` and
-``visit_schedule.offstudy_model`` are exported as ``StudyEventDef`` elements
-with ``Type="Common"``.  Abstract-only models (e.g.
-``edc_adverse_event.deathreport``) are silently skipped.
-
-Field definitions
-~~~~~~~~~~~~~~~~~
-
-For each CRF model, fields are read from the registered ``ModelAdmin``'s
-``fieldsets`` if available.  This provides the authoritative field ordering and
-grouping that clinicians see in the data-entry interface.
-
-Fields are mapped from Django field types to ODM data types (see
-:doc:`odm_mapping`).  Choice fields produce ``CodeList`` elements with
-``CodeListItem`` entries.
-
-The following are excluded:
-
-* ``subject_visit`` / ``related_visit`` foreign keys
-* Audit fieldset sections (``"Audit"``, ``"Action"``)
+``MetaDataVersion/@OID`` is ``MDV.<fingerprint>``, where the fingerprint is a
+SHA-256 over the canonicalized ``MetaDataVersion`` subtree.  It is therefore
+**stable** across releases and changes only when the metadata itself changes.
+``ClinicalDataSerializer`` computes the same fingerprint, so a data file's
+``MetaDataVersionOID`` always matches the metadata edition it conforms to.

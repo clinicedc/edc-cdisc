@@ -1,91 +1,68 @@
-Data Export --- Snapshot
-========================
+Clinical Data Export
+====================
 
-``ODMClinicalDataSerializer`` exports all submitted CRF data as an ODM
-``ClinicalData`` element with ``FileType="Snapshot"``.  A snapshot is a
-complete point-in-time extract: every enrolled subject, every completed visit,
-and every submitted CRF.
+``ClinicalDataSerializer`` exports submitted CRF values as ODM
+``<ClinicalData>`` XML.
+
+The data is read **directly from the** ``SubjectVisit`` **model and the CRF
+instances** linked to each visit — a CRF instance existing for a
+``subject_visit`` is the source of truth that it was entered.  (There is no
+dependency on the ``CrfMetadata`` layer.)
 
 Usage
 -----
 
 .. code-block:: python
 
-   from edc_cdisc.odm import ODMClinicalDataSerializer
+   from edc_cdisc.serializers import ClinicalDataSerializer
 
-   serializer = ODMClinicalDataSerializer(
+   xml_bytes = ClinicalDataSerializer(
+       edc_module_name="meta_edc",
        visit_schedule=visit_schedule,
-       subject_identifiers=None,      # optional: filter to specific subjects
-       study_oid="S.EFFECT",          # optional, defaults to protocol name
-       metadata_version_oid="MDV.1",  # optional
-   )
-   xml_bytes = serializer.to_xml()
-
-How it works
-------------
-
-1. **Subjects** --- All ``SubjectVisit`` records for the visit schedule are
-   queried, grouped by ``subject_identifier``.  If ``subject_identifiers`` is
-   provided, only those subjects are included.
-
-2. **Visits** --- For each subject, visits are iterated in order of
-   ``visit_code`` and ``visit_code_sequence``.
-
-3. **CRFs** --- For each visit, ``CrfMetadata`` records with
-   ``entry_status="KEYED"`` are queried.  The corresponding model instance
-   (``metadata.model_instance``) is loaded for each.
-
-4. **Fields** --- CRF fields are read using the ``ModelAdmin`` fieldsets (if
-   registered) or ``Model._meta.get_fields()`` as a fallback.  Each field value
-   is serialized to a string representation suitable for ODM.
-
-5. **Empty visits** --- Visits with no submitted CRFs are omitted from the
-   output (no empty ``StudyEventData`` elements).
+       subject_identifiers=["100-0001"],   # optional, None = all subjects
+       include_nulls=False,                # optional
+   ).to_xml()
 
 Output structure
 ----------------
 
 .. code-block:: text
 
-   ODM (FileType="Snapshot")
-     ClinicalData (StudyOID, MetaDataVersionOID)
-       SubjectData (SubjectKey=subject_identifier)
-         StudyEventData (StudyEventOID="SE.<visit_code>")
-           FormData (FormOID="F.<app_label>.<model_name>")
-             ItemGroupData (ItemGroupOID="IG.<section_key>")
-               ItemData (ItemOID="I.<app_label>.<model_name>.<field>", Value="...")
-               ItemData ...
-             ItemGroupData ...
-           FormData ...
-         StudyEventData ...
-       SubjectData ...
+   ODM
+     ClinicalData  (StudyOID="S.<protocol>" MetaDataVersionOID="MDV.<fp>")
+       SubjectData  (SubjectKey="<subject_identifier>")
+         StudyEventData  (StudyEventOID="SE.<code>" | "UE.<code>" | "CE.<model>")
+           FormData  (FormOID="F.<model>")
+             ItemGroupData  (ItemGroupOID="IG.<section>")
+               ItemData  (ItemOID="I.<model>.<field>" Value="…")
 
-Unscheduled visits
-~~~~~~~~~~~~~~~~~~
+``ClinicalData`` references the metadata by OID (``StudyOID`` and
+``MetaDataVersionOID``) rather than nesting it — so a data file links to the
+metadata edition it conforms to.  The ``MetaDataVersionOID`` is the same
+``MDV.<fingerprint>`` the metadata serializer stamps.
 
-Unscheduled visits (``visit_code_sequence > 0``) include a
-``StudyEventRepeatKey`` attribute on their ``StudyEventData`` element, as
-required by the ODM specification for repeating events.
+Study events
+~~~~~~~~~~~~
 
-Value serialization
--------------------
+A subject's ``SubjectVisit`` rows map to ``StudyEventData`` by visit code and
+sequence:
 
-Python values are converted to ODM-compatible strings by ``serialize_value()``:
+* ``visit_code_sequence == 0`` → scheduled → ``StudyEventOID="SE.<code>"``.
+* ``visit_code_sequence > 0`` → unscheduled → ``StudyEventOID="UE.<code>"``
+  with ``StudyEventRepeatKey="<sequence>"`` (unscheduled events repeat).
+* Death-report / offstudy singletons → ``StudyEventOID="CE.<model>"``.
 
-=================  ==========================  =========================
-Python type        Example input               ODM string
-=================  ==========================  =========================
-``bool``           ``True``                    ``"true"``
-``datetime``       ``2025-08-11T08:00:00+00``  ``"2025-08-11T08:00:00+00:00"``
-``date``           ``date(2025, 8, 11)``       ``"2025-08-11"``
-``time``           ``time(14, 30)``            ``"14:30:00"``
-``Decimal``        ``Decimal("1.5")``          ``"1.5"``
-``float``          ``3.14``                    ``"3.14"``
-``int``            ``42``                      ``"42"``
-``UUID``           ``UUID("abcd...")``         ``"abcd..."``
-``str``            ``"hello"``                 ``"hello"``
-``None``           ``None``                    *(omitted)*
-=================  ==========================  =========================
+A **negative** ``visit_code_sequence`` raises ``NegativeVisitCodeSequenceError``
+— it indicates corrupt state, and the export refuses to run rather than emit
+a misleading file.
 
-Fields with a ``None`` value are excluded from the output entirely (no
-``ItemData`` element is emitted).
+Null values
+~~~~~~~~~~~
+
+By default a null field is **omitted**, so each form instance contributes a
+variable number of ``ItemData`` rows.  Pass ``include_nulls=True`` to emit
+``<ItemData IsNull="Yes"/>`` for every null field instead — then every form
+instance carries a fixed number of items, which makes record counts easy to
+reconcile against the source tables.  Note that an empty string is *real*
+(entered-but-blank) data and is always emitted as ``Value=""``; only ``None``
+is treated as null.
