@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 from django.apps import apps as django_apps
+from django.conf import settings
 from django.db.models import Manager
 from edc_visit_schedule.visit import Visit
 
@@ -79,6 +80,16 @@ class VisitScheduleSerializer(Serializer):
             ]
             if model and self._model_exists(model)
         ]
+
+    def get_screening_model(self) -> str | None:
+        """The pre-consent screening model (settings.SUBJECT_SCREENING_MODEL).
+
+        Treated as a Common event keyed by subject_identifier; that field is
+        back-filled to the allocation identifier at consent, so only enrolled
+        subjects match.
+        """
+        model = getattr(settings, "SUBJECT_SCREENING_MODEL", None)
+        return model if model and self._model_exists(model) else None
 
     @staticmethod
     def _model_exists(model: str) -> bool:

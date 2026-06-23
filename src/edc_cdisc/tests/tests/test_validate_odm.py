@@ -4,8 +4,9 @@ from zoneinfo import ZoneInfo
 import time_machine
 from clinicedc_tests.consents import consent_v1
 from clinicedc_tests.helper import Helper
-from clinicedc_tests.models import CrfFour
+from clinicedc_tests.models import CrfFour, SubjectScreening
 from dateutil.relativedelta import relativedelta
+from django.contrib import admin
 from django.db import models
 from django.test import TestCase, override_settings
 from django_crypto_fields.fields import EncryptedCharField, FirstnameField
@@ -30,6 +31,15 @@ from edc_cdisc.serializers import (
 from edc_cdisc.utils import is_encrypted_field, validate_odm
 
 NS = {"odm": ODM_NAMESPACE}
+
+# screening model has no admin in clinicedc_tests; register a clean one
+# (plain admin → auto fieldsets of real fields; encrypted PII is dropped)
+if not admin.site.is_registered(SubjectScreening):
+
+    @admin.register(SubjectScreening)
+    class _SubjectScreeningAdmin(admin.ModelAdmin):
+        pass
+
 
 utc_tz = ZoneInfo("UTC")
 EDC_MODULE = "edc_cdisc"
@@ -141,6 +151,30 @@ class TestValidateOdm(TestCase):
         keys = {sd.get("SubjectKey") for sd in root.findall(".//odm:SubjectData", NS)}
         self.assertNotIn("999-99-0000-0", keys)
         self.assertIn(self.subject_visit.subject_identifier, keys)
+
+    def test_screening_event_def_has_category_alias(self) -> None:
+        root = etree.fromstring(self._build(MetadataSerializer))
+        sed = root.find(".//odm:StudyEventDef[@OID='CE.clinicedc_tests.subjectscreening']", NS)
+        self.assertIsNotNone(sed)
+        self.assertEqual(sed.get("Type"), "Common")
+        alias = sed.find("odm:Alias[@Context='clinicedc.event_category']", NS)
+        self.assertIsNotNone(alias)
+        self.assertEqual(alias.get("Name"), "screening")
+
+    def test_screening_event_data_present(self) -> None:
+        # consent back-fills the screening subject_identifier; key it to the
+        # enrolled subject so it is exported
+        SubjectScreening.objects.all().update(
+            subject_identifier=self.subject_visit.subject_identifier
+        )
+        root = etree.fromstring(self._build(SnapshotSerializer))
+        sed = root.find(
+            ".//odm:ClinicalData//odm:StudyEventData"
+            "[@StudyEventOID='CE.clinicedc_tests.subjectscreening']",
+            NS,
+        )
+        self.assertIsNotNone(sed)
+        self.assertEqual(validate_odm(self._build(SnapshotSerializer)), [])
 
 
 class TestEncryptedFieldDetection(TestCase):
