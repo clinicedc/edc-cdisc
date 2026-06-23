@@ -15,6 +15,7 @@ from .serializer import Serializer
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from edc_registration.models import RegisteredSubject
     from edc_visit_schedule.visit_schedule import VisitSchedule
 
 
@@ -62,6 +63,10 @@ class VisitScheduleSerializer(Serializer):
     @property
     def related_visit_model_cls(self) -> type[RelatedVisitProtocol]:
         return self.visit_schedule.visit_model_cls
+
+    @property
+    def registered_subject_model_cls(self) -> type[RegisteredSubject]:
+        return django_apps.get_model("edc_registration", "RegisteredSubject")
 
     def get_common_models(self) -> list[str]:
         # Skip unset or abstract/unregistered models (e.g. an abstract

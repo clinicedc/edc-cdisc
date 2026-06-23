@@ -11,6 +11,7 @@ from django.test import TestCase, override_settings
 from django_crypto_fields.fields import EncryptedCharField, FirstnameField
 from edc_consent.site_consents import site_consents
 from edc_facility.import_holidays import import_holidays
+from edc_registration.models import RegisteredSubject
 from edc_sites.single_site import SingleSite
 from edc_sites.utils import add_or_update_django_sites
 from edc_utils import get_utcnow
@@ -18,13 +19,17 @@ from edc_visit_schedule.schedule import Schedule
 from edc_visit_schedule.site_visit_schedules import site_visit_schedules
 from edc_visit_schedule.visit import Crf, CrfCollection, RequisitionCollection, Visit
 from edc_visit_schedule.visit_schedule import VisitSchedule
+from lxml import etree
 
+from edc_cdisc.constants import ODM_NAMESPACE
 from edc_cdisc.serializers import (
     ClinicalDataSerializer,
     MetadataSerializer,
     SnapshotSerializer,
 )
 from edc_cdisc.utils import is_encrypted_field, validate_odm
+
+NS = {"odm": ODM_NAMESPACE}
 
 utc_tz = ZoneInfo("UTC")
 EDC_MODULE = "edc_cdisc"
@@ -121,6 +126,21 @@ class TestValidateOdm(TestCase):
 
     def test_combined_snapshot_validates(self) -> None:
         self.assertEqual(validate_odm(self._build(SnapshotSerializer)), [])
+
+    def test_subject_set_driven_by_registered_subject(self) -> None:
+        # the enrolled subject (has a visit + CRF) appears, keyed by its id
+        root = etree.fromstring(self._build(ClinicalDataSerializer))
+        keys = {sd.get("SubjectKey") for sd in root.findall(".//odm:SubjectData", NS)}
+        self.assertIn(self.subject_visit.subject_identifier, keys)
+
+    def test_enrolled_subject_without_data_is_pruned(self) -> None:
+        # a RegisteredSubject with no visits/common/screening is iterated but
+        # produces no SubjectData (build_subject_data returns None)
+        RegisteredSubject.objects.create(subject_identifier="999-99-0000-0")
+        root = etree.fromstring(self._build(ClinicalDataSerializer))
+        keys = {sd.get("SubjectKey") for sd in root.findall(".//odm:SubjectData", NS)}
+        self.assertNotIn("999-99-0000-0", keys)
+        self.assertIn(self.subject_visit.subject_identifier, keys)
 
 
 class TestEncryptedFieldDetection(TestCase):
