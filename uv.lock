@@ -583,7 +583,7 @@ wheels = [
 
 [[package]]
 name = "clinicedc"
-version = "4.0.6"
+version = "4.1.1"
 source = { editable = "../clinicedc" }
 dependencies = [
     { name = "argon2-cffi" },
@@ -747,7 +747,7 @@ lint = [{ name = "ruff", specifier = ">=0.12.5" }]
 
 [[package]]
 name = "clinicedc-utils"
-version = "1.0.4"
+version = "1.0.5"
 source = { editable = "../clinicedc-utils" }
 dependencies = [
     { name = "clinicedc-constants" },

@@ -1,8 +1,35 @@
+from __future__ import annotations
+
+from datetime import date, datetime, time
+from decimal import Decimal
+from pathlib import Path
+from typing import TYPE_CHECKING
+from uuid import UUID
+
 from django.db import models
 from django_audit_fields.constants import AUDIT_MODEL_FIELDS
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 ODM_NAMESPACE = "http://www.cdisc.org/ns/odm/v1.3"
+
+SERIALIZE_MAP: tuple[tuple[type, Callable], ...] = (
+    (bool, lambda v: "true" if v else "false"),
+    (datetime, lambda v: v.isoformat()),
+    (date, lambda v: v.isoformat()),
+    (time, lambda v: v.isoformat()),
+    (Decimal, str),
+    (float, str),
+    (int, str),
+    (UUID, str),
+)
+
+NSMAP = {None: ODM_NAMESPACE}
+
 ODM_VERSION = "1.3.1"
+# ODM_METADATA_VERSION_OID = "MDV.1"
+# ODM_METADATA_VERSION_NAME = "Version {}"
 
 DJANGO_TO_ODM_DATATYPE: dict[type[models.Field], str] = {
     models.CharField: "text",
@@ -42,17 +69,29 @@ EXCLUDED_FIELDSET_NAMES = frozenset(
     }
 )
 
-# System/provenance columns that must never appear in a data export.
-# AUDIT_MODEL_FIELDS = created, modified, user_created, user_modified,
-# hostname_*, device_*, locale_* (the django_audit_fields system columns).
-# "consent_model" is consent provenance, not a CRF answer. Note that
-# "id", "revision", "consent_version", and the action_* identifiers are
-# intentionally NOT excluded.
+# System columns are mostly not included in the data export.
+# Columns "id", "revision", "consent_version", and the
+# action_* identifiers are intentionally NOT excluded.
 EXCLUDED_FIELD_NAMES = frozenset(
     {
         "subject_visit",
         "related_visit",
         "consent_model",
-        *AUDIT_MODEL_FIELDS,
+        *[f for f in AUDIT_MODEL_FIELDS if f not in ["created", "modified"]],
     }
 )
+
+
+SCHEDULED_EVENT = "SE"  # scheduled event
+UNSCHEDULED_EVENT = "UE"  # unscheduled event
+COMMON_EVENT = "CE"
+CODELIST = "CL"  # codelist
+ITEM_GROUP = "IG"
+ITEM = "I"
+FORM = "F"
+
+SCHEDULED_TYPE = "Scheduled"
+UNSCHEDULED_TYPE = "Unscheduled"
+COMMON_TYPE = "Common"
+
+ODM_SCHEMA_PATH = Path(__file__).parent / "odm_schema" / "cdisc-odm-1.3.1" / "ODM1-3-1.xsd"
