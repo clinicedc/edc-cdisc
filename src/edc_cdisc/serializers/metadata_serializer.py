@@ -70,9 +70,15 @@ class MetadataSerializer(VisitScheduleSerializer):
         element = etree.Element("MetaDataVersion")
         element.append(self.get_protocol_element())
 
+        screening_model = self.get_screening_model()
+
         # StudyEventDefs (order among them is free; schedule carried by Alias)
         for model in self.get_common_models():
             element.append(self.get_common_event_def_element(model))
+        if screening_model:
+            element.append(
+                self.get_common_event_def_element(screening_model, event_category="screening")
+            )
         for schedule in self.visit_schedule.schedules.values():
             for visit in schedule.visits.values():
                 element.append(self.get_scheduled_def_element(visit, schedule.name))
@@ -81,7 +87,7 @@ class MetadataSerializer(VisitScheduleSerializer):
                     element.append(self.get_unscheduled_def_element(visit, schedule.name))
 
         # Shared, deduped definition catalog (CRF + requisition models the
-        # events reference, plus common models), in ODM type order.
+        # events reference, plus common + screening models), in ODM type order.
         # Skip abstract/unregistered models (e.g. an abstract death_report_model).
         form_models = {
             crf.model
@@ -89,9 +95,12 @@ class MetadataSerializer(VisitScheduleSerializer):
             for visit in schedule.visits.values()
             for crf in [*visit.all_crfs, *visit.all_requisitions]
         }
+        common_models = [*self.get_common_models()]
+        if screening_model:
+            common_models.append(screening_model)
         models = [
             m
-            for m in dict.fromkeys([*self.get_common_models(), *sorted(form_models)])
+            for m in dict.fromkeys([*common_models, *sorted(form_models)])
             if self._model_exists(m)
         ]
         for model in models:
@@ -126,6 +135,13 @@ class MetadataSerializer(VisitScheduleSerializer):
                 element,
                 "StudyEventRef",
                 StudyEventOID=self.common_event_oid(model),
+                Mandatory=NO,
+            )
+        if screening_model := self.get_screening_model():
+            etree.SubElement(
+                element,
+                "StudyEventRef",
+                StudyEventOID=self.common_event_oid(screening_model),
                 Mandatory=NO,
             )
         return element
@@ -309,6 +325,7 @@ class MetadataSerializer(VisitScheduleSerializer):
     def get_common_event_def_element(
         self,
         model: str,
+        event_category: str | None = None,
     ) -> etree._Element:
         verbose_name = str(django_apps.get_model(model)._meta.verbose_name)
         element = etree.Element(
@@ -324,6 +341,13 @@ class MetadataSerializer(VisitScheduleSerializer):
             FormOID=oid(FORM, model),
             Mandatory=YES,
         )
+        if event_category:  # ODM: Alias must follow FormRef(s)
+            etree.SubElement(
+                element,
+                "Alias",
+                Context="clinicedc.event_category",
+                Name=event_category,
+            )
         return element
 
     def get_crfs_unscheduled(self) -> dict[str, tuple[Crf, ...]]:

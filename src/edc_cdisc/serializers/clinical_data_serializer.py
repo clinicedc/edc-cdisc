@@ -163,9 +163,16 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
         return element
 
     def build_common_event_data(self, subject_identifier: str) -> list[etree._Element]:
-        """Death report / offstudy — singleton (or zero) per subject."""
+        """Singleton (or zero) per subject — death report / offstudy / screening.
+
+        Screening is keyed by subject_identifier too: it's the allocation
+        identifier for enrolled subjects, so only their screening matches.
+        """
+        models = [*self.get_common_models()]
+        if screening_model := self.get_screening_model():
+            models.append(screening_model)
         elements: list[etree._Element] = []
-        for model in self.get_common_models():
+        for model in models:
             instance = (
                 django_apps.get_model(model)
                 .objects.filter(subject_identifier=subject_identifier)
