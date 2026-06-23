@@ -61,19 +61,37 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
             StudyOID=self.protocol_oid,
             MetaDataVersionOID=self.metadata_version_oid,
         )
+        # Drive the subject set off the enrolled master list (RegisteredSubject),
+        # so an enrolled subject with no visits (but a common/screening event)
+        # still appears.  Visits are prefetched once and grouped by subject.
+        visits_by_subject = self._visits_by_subject()
+        for subject_identifier in self._enrolled_subject_identifiers():
+            subject_element = self.build_subject_data(
+                subject_identifier, visits_by_subject.get(subject_identifier, [])
+            )
+            if subject_element is not None:
+                element.append(subject_element)
+        return element
+
+    def _enrolled_subject_identifiers(self):
+        qs = self.registered_subject_model_cls.objects.all()
+        if self.subject_identifiers:
+            qs = qs.filter(subject_identifier__in=self.subject_identifiers)
+        return qs.values_list("subject_identifier", flat=True).order_by("subject_identifier")
+
+    def _visits_by_subject(self) -> dict[str, list[RelatedVisitProtocol]]:
         opts = {}
         if self.subject_identifiers:
             opts.update(subject_identifier__in=self.subject_identifiers)
         qs = self.related_visit_model_cls.objects.filter(
             visit_schedule_name=self.visit_schedule.name, **opts
         ).order_by("subject_identifier", "report_datetime")
-        for subject_identifier, subject_visits in itertools.groupby(
-            qs, key=operator.attrgetter("subject_identifier")
-        ):
-            subject_element = self.build_subject_data(subject_identifier, list(subject_visits))
-            if subject_element is not None:
-                element.append(subject_element)
-        return element
+        return {
+            subject_identifier: list(visits)
+            for subject_identifier, visits in itertools.groupby(
+                qs, key=operator.attrgetter("subject_identifier")
+            )
+        }
 
     def build_subject_data(
         self, subject_identifier: str, subject_visits: list[RelatedVisitProtocol]
