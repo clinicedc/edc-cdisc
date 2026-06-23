@@ -20,8 +20,8 @@ from ..exceptions import ProtocolSerializerError
 from ..utils import (
     compute_fingerprint,
     fieldset_key,
-    get_modeladmin_fieldsets,
     get_odm_datatype,
+    iter_crf_sections,
     iter_fieldset_fields,
     oid,
 )
@@ -137,14 +137,13 @@ class MetadataSerializer(VisitScheduleSerializer):
     @staticmethod
     def get_form_def_element(model: str) -> etree._Element:
         model_cls = django_apps.get_model(model)
-        fieldsets = get_modeladmin_fieldsets(model_cls)
         element = etree.Element(
             "FormDef",
             OID=oid(FORM, model),
             Name=str(model_cls._meta.verbose_name),
             Repeating=NO,
         )
-        for index, (name, _options) in enumerate(fieldsets, start=1):
+        for index, name, _fields in iter_crf_sections(model_cls):
             section_key = fieldset_key(model, name, index)
             etree.SubElement(
                 element,
@@ -159,8 +158,7 @@ class MetadataSerializer(VisitScheduleSerializer):
     def get_item_group_defs_elements(model: str) -> list[etree._Element]:
         elements = []
         model_cls = django_apps.get_model(model)
-        fieldsets = get_modeladmin_fieldsets(model_cls)
-        for index, (name, opts) in enumerate(fieldsets, start=1):
+        for index, name, fields in iter_crf_sections(model_cls):
             section_key = fieldset_key(model, name, index)
             section_name = str(name) if name else str(model_cls._meta.verbose_name)
             element = etree.Element(
@@ -169,12 +167,7 @@ class MetadataSerializer(VisitScheduleSerializer):
                 Name=section_name,
                 Repeating=NO,
             )
-            for i, field_name in enumerate(opts.get("fields"), start=1):
-                field = model_cls._meta.get_field(field_name)
-                # TODO: need these fields! allow fk/uuid as text for now
-                # TODO: M2M??
-                # if isinstance(field, (models.ForeignKey, models.OneToOneField)):
-                #     continue
+            for i, field in enumerate(fields, start=1):
                 etree.SubElement(
                     element,
                     "ItemRef",

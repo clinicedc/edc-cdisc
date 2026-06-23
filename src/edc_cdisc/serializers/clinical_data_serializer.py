@@ -16,7 +16,7 @@ from ..exceptions import NegativeVisitCodeSequenceError
 from ..utils import (
     compute_fingerprint,
     fieldset_key,
-    get_modeladmin_fieldsets,
+    iter_crf_sections,
     oid,
     serialize_value,
 )
@@ -125,14 +125,14 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
             attrs["TransactionType"] = transaction_type
         element = etree.Element("FormData", **attrs)
 
-        # SAME iteration as the metadata side → ItemGroupOID/ItemOID line up
-        for index, (name, opts) in enumerate(get_modeladmin_fieldsets(model_cls), start=1):
+        # SAME field selection as the metadata side → ItemGroupOID/ItemOID
+        # line up (encrypted fields skipped, sections kept stable).
+        for index, name, fields in iter_crf_sections(model_cls):
             group = etree.Element(
                 "ItemGroupData",
                 ItemGroupOID=oid(ITEM_GROUP, fieldset_key(model, name, index)),
             )
-            for field_name in opts.get("fields"):
-                field = model_cls._meta.get_field(field_name)
+            for field in fields:
                 item_oid = oid(ITEM, f"{model}.{field.name}")
                 # field.attname → FK reads the uuid pk (FK-as-text for now)
                 value = serialize_value(getattr(instance, field.attname, None))

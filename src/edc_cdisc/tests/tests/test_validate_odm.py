@@ -6,7 +6,9 @@ from clinicedc_tests.consents import consent_v1
 from clinicedc_tests.helper import Helper
 from clinicedc_tests.models import CrfFour
 from dateutil.relativedelta import relativedelta
+from django.db import models
 from django.test import TestCase, override_settings
+from django_crypto_fields.fields import EncryptedCharField, FirstnameField
 from edc_consent.site_consents import site_consents
 from edc_facility.import_holidays import import_holidays
 from edc_sites.single_site import SingleSite
@@ -22,7 +24,7 @@ from edc_cdisc.serializers import (
     MetadataSerializer,
     SnapshotSerializer,
 )
-from edc_cdisc.utils import validate_odm
+from edc_cdisc.utils import is_encrypted_field, validate_odm
 
 utc_tz = ZoneInfo("UTC")
 EDC_MODULE = "edc_cdisc"
@@ -119,3 +121,11 @@ class TestValidateOdm(TestCase):
 
     def test_combined_snapshot_validates(self) -> None:
         self.assertEqual(validate_odm(self._build(SnapshotSerializer)), [])
+
+
+class TestEncryptedFieldDetection(TestCase):
+    def test_is_encrypted_field(self) -> None:
+        self.assertTrue(is_encrypted_field(EncryptedCharField()))
+        self.assertTrue(is_encrypted_field(FirstnameField()))
+        self.assertFalse(is_encrypted_field(models.CharField()))
+        self.assertFalse(is_encrypted_field(models.IntegerField()))
