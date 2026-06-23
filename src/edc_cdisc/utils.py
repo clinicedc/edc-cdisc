@@ -118,21 +118,53 @@ def fieldset_key(model_label: str, name: str | None, order: int) -> str:
     return f"{model_label}.section_{order}"
 
 
-def iter_fieldset_fields(model_cls: type[models.Model]) -> Iterator[models.Field]:
-    """Yields a subclass of models.Field.
+def is_encrypted_field(field: models.Field) -> bool:
+    """True if ``field`` is a django_crypto_fields encrypted field (PII).
 
-    Note : Includes relation fields: RelatedField, ForeignKey,
-        ManyToManyField. These instances will need to be
-        handled specially downstream when accessing the
-        stored value or values.
+    Encrypted fields are never exported (metadata or data) anywhere in
+    edc-cdisc.
     """
-    seen: set[str] = set()
-    for _, opts in get_modeladmin_fieldsets(model_cls):
+    from django_crypto_fields.fields.base_field import BaseField  # noqa: PLC0415
+
+    return isinstance(field, BaseField)
+
+
+def iter_crf_sections(
+    model_cls: type[models.Model],
+) -> Iterator[tuple[int, str | None, list[models.Field]]]:
+    """Yield ``(section_order, section_name, fields)`` for each non-empty
+    admin fieldset section, skipping encrypted (PII) fields.
+
+    This is the single field-selection source shared by the metadata
+    (``FormDef`` / ``ItemGroupDef`` / ``ItemDef``) and data (``FormData``)
+    builders, so they cannot drift.  ``section_order`` is the fieldset's
+    positional index and is kept stable (it is not renumbered when a section
+    drops out) so ``ItemGroupOID``\\s do not shift.
+
+    Note: relation fields (FK / O2O / M2M) are *included* for now (emitted as
+    text); proper relation handling is a later step.
+    """
+    for index, (name, opts) in enumerate(get_modeladmin_fieldsets(model_cls), start=1):
+        fields = []
         for field_name in opts.get("fields"):
-            if field_name in seen:
+            field = model_cls._meta.get_field(field_name)
+            if is_encrypted_field(field):
                 continue
-            seen.add(field_name)
-            yield model_cls._meta.get_field(field_name)
+            fields.append(field)
+        if fields:
+            yield index, name, fields
+
+
+def iter_fieldset_fields(model_cls: type[models.Model]) -> Iterator[models.Field]:
+    """Deduplicated flat view of :func:`iter_crf_sections` (for ``ItemDef`` /
+    ``CodeList`` building)."""
+    seen: set[str] = set()
+    for _index, _name, fields in iter_crf_sections(model_cls):
+        for field in fields:
+            if field.name in seen:
+                continue
+            seen.add(field.name)
+            yield field
 
 
 def compute_fingerprint(mdv: etree._Element) -> str:
