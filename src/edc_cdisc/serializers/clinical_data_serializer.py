@@ -103,6 +103,7 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
             if event_element is not None:
                 event_elements.append(event_element)
         event_elements += self.build_common_event_data(subject_identifier)
+        event_elements += self.build_consent_event_data(subject_identifier)
 
         if not event_elements:
             return None
@@ -135,13 +136,24 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
         return element
 
     def build_form_data(
-        self, model: str, instance, transaction_type: str | None = None
+        self,
+        model: str,
+        instance,
+        transaction_type: str | None = None,
+        audit_record: etree._Element | None = None,
     ) -> etree._Element:
-        model_cls = type(instance)
+        # Field selection keys off the *concrete* model label (not type(instance)):
+        # for a simple_history row type(instance) is the historical model, whose
+        # label would miss the whitelist/encrypted rules and leak PII.  No-op for
+        # the snapshot, where type(instance) == get_model(model).
+        model_cls = django_apps.get_model(model)
         attrs = {"FormOID": oid(FORM, model)}
         if transaction_type:
             attrs["TransactionType"] = transaction_type
         element = etree.Element("FormData", **attrs)
+        # ODM: AuditRecord precedes ItemGroupData
+        if audit_record is not None:
+            element.append(audit_record)
 
         # SAME field selection as the metadata side → ItemGroupOID/ItemOID
         # line up (encrypted fields skipped, sections kept stable).
@@ -184,6 +196,33 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
                 "StudyEventData", StudyEventOID=self.common_event_oid(model)
             )
             element.append(self.build_form_data(model, instance))
+            elements.append(element)
+        return elements
+
+    def build_consent_event_data(self, subject_identifier: str) -> list[etree._Element]:
+        """Repeating Common event — one StudyEventData per consent row.
+
+        Consent is unique on subject_identifier + version, so a subject may have
+        several rows; each is emitted with StudyEventRepeatKey = version.  Only
+        the whitelist fields (CONSENT_EXPORT_FIELDS) are serialized — the consent
+        document holds sensitive data.
+        """
+        consent_model = self.get_consent_model()
+        if not consent_model:
+            return []
+        elements: list[etree._Element] = []
+        qs = (
+            django_apps.get_model(consent_model)
+            .objects.filter(subject_identifier=subject_identifier)
+            .order_by("version", "consent_datetime")
+        )
+        for instance in qs:
+            element = etree.Element(
+                "StudyEventData",
+                StudyEventOID=self.common_event_oid(consent_model),
+                StudyEventRepeatKey=str(instance.version),
+            )
+            element.append(self.build_form_data(consent_model, instance))
             elements.append(element)
         return elements
 
