@@ -5,6 +5,7 @@ import warnings
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.sites import all_sites
 from django.db import models
@@ -12,10 +13,12 @@ from django.http import HttpRequest
 from lxml import etree
 
 from .constants import (
+    CONSENT_EXPORT_FIELDS,
     DJANGO_TO_ODM_DATATYPE,
     EXCLUDED_FIELD_NAMES,
     EXCLUDED_FIELDSET_NAMES,
     ODM_SCHEMA_PATH,
+    WHITELIST_FIELDS,
 )
 from .exceptions import ModelAdminNotFoundError
 
@@ -129,6 +132,44 @@ def is_encrypted_field(field: models.Field) -> bool:
     return isinstance(field, BaseField)
 
 
+def get_whitelist_fields(model_label: str) -> tuple[str, ...] | None:
+    """Explicit export field list for ``model_label``, or ``None`` when the
+    model is driven by its admin fieldsets.
+
+    The consent model (``settings.SUBJECT_CONSENT_MODEL``) holds sensitive data,
+    so only the explicit, non-PII :data:`CONSENT_EXPORT_FIELDS` are exported.
+    Static whitelists for other models live in :data:`WHITELIST_FIELDS`.
+    """
+    if model_label == getattr(settings, "SUBJECT_CONSENT_MODEL", None):
+        return CONSENT_EXPORT_FIELDS
+    return WHITELIST_FIELDS.get(model_label)
+
+
+def iter_whitelist_fields(
+    model_cls: type[models.Model], field_names: Iterable[str]
+) -> Iterator[models.Field]:
+    """Yield the explicitly whitelisted fields of ``model_cls``.
+
+    The same PII floor as everywhere else still applies: an encrypted field or
+    an :data:`EXCLUDED_FIELD_NAMES` field is dropped *even if whitelisted*, with
+    a warning so the mistake is visible.  This is what stops a sensitive field
+    from being re-exposed by being added to a whitelist.  A name that is not a
+    real field raises ``FieldDoesNotExist`` (whitelists must be explicit).
+    """
+    label = model_cls._meta.label_lower
+    for field_name in field_names:
+        field = model_cls._meta.get_field(field_name)
+        if is_encrypted_field(field) or field.name in EXCLUDED_FIELD_NAMES:
+            warnings.warn(
+                f"Whitelisted field {label}.{field_name} is encrypted or "
+                "excluded; not exported.",
+                UserWarning,
+                stacklevel=2,
+            )
+            continue
+        yield field
+
+
 def iter_crf_sections(
     model_cls: type[models.Model],
 ) -> Iterator[tuple[int, str | None, list[models.Field]]]:
@@ -141,9 +182,20 @@ def iter_crf_sections(
     positional index and is kept stable (it is not renumbered when a section
     drops out) so ``ItemGroupOID``\\s do not shift.
 
+    Whitelisted models (see :func:`get_whitelist_fields`) bypass the admin
+    entirely and yield a single unnamed section of their explicit fields — so a
+    model holding sensitive data needs no admin registered and exports only the
+    vetted list.
+
     Note: relation fields (FK / O2O / M2M) are *included* for now (emitted as
     text); proper relation handling is a later step.
     """
+    whitelist = get_whitelist_fields(model_cls._meta.label_lower)
+    if whitelist is not None:
+        fields = list(iter_whitelist_fields(model_cls, whitelist))
+        if fields:
+            yield 1, None, fields
+        return
     for index, (name, opts) in enumerate(get_modeladmin_fieldsets(model_cls), start=1):
         fields = []
         for field_name in opts.get("fields"):

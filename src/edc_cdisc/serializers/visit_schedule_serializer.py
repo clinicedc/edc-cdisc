@@ -91,6 +91,17 @@ class VisitScheduleSerializer(Serializer):
         model = getattr(settings, "SUBJECT_SCREENING_MODEL", None)
         return model if model and self._model_exists(model) else None
 
+    def get_consent_model(self) -> str | None:
+        """The consent model (settings.SUBJECT_CONSENT_MODEL).
+
+        A *repeating* Common event keyed by subject_identifier (the allocation
+        identifier consent assigns), with repeat key = ``version`` — one row per
+        consent version.  The consent document holds sensitive data, so only the
+        explicit whitelist (CONSENT_EXPORT_FIELDS) is exported.
+        """
+        model = getattr(settings, "SUBJECT_CONSENT_MODEL", None)
+        return model if model and self._model_exists(model) else None
+
     @staticmethod
     def _model_exists(model: str) -> bool:
         try:

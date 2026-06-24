@@ -94,4 +94,27 @@ SCHEDULED_TYPE = "Scheduled"
 UNSCHEDULED_TYPE = "Unscheduled"
 COMMON_TYPE = "Common"
 
+SCREENING_EVENT_CATEGORY = "screening"
+CONSENT_EVENT_CATEGORY = "consent"
+
+# Models whose export field list is an explicit whitelist instead of the admin
+# fieldsets.  Used for documents that hold sensitive data (e.g. consent): only
+# the named, non-PII fields are exported.  The encrypted-field and
+# EXCLUDED_FIELD_NAMES floors STILL apply on top (see iter_whitelist_fields), so
+# an encrypted/excluded field added here cannot be re-exposed — it is dropped
+# and a warning is emitted.  Plaintext-sensitive additions are caught by review;
+# keep these lists tiny and explicit.
+CONSENT_EXPORT_FIELDS: tuple[str, ...] = (
+    "subject_identifier",
+    "consent_datetime",
+    "model_name",
+    "version",
+    "consent_definition_name",
+)
+
+# Static per-model whitelists (model label_lower -> field names).  The consent
+# model is resolved dynamically from settings.SUBJECT_CONSENT_MODEL in
+# get_whitelist_fields, so it is not listed here.
+WHITELIST_FIELDS: dict[str, tuple[str, ...]] = {}
+
 ODM_SCHEMA_PATH = Path(__file__).parent / "odm_schema" / "cdisc-odm-1.3.1" / "ODM1-3-1.xsd"
