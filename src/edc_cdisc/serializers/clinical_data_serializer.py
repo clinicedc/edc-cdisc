@@ -138,7 +138,11 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
     def build_form_data(
         self, model: str, instance, transaction_type: str | None = None
     ) -> etree._Element:
-        model_cls = type(instance)
+        # Field selection keys off the *concrete* model label (not type(instance)):
+        # for a simple_history row type(instance) is the historical model, whose
+        # label would miss the whitelist/encrypted rules and leak PII.  No-op for
+        # the snapshot, where type(instance) == get_model(model).
+        model_cls = django_apps.get_model(model)
         attrs = {"FormOID": oid(FORM, model)}
         if transaction_type:
             attrs["TransactionType"] = transaction_type
