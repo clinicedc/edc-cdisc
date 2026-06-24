@@ -1,16 +1,18 @@
 [project]
 name = "edc-cdisc"
-version = "0.1.1"
+version = "0.2.0"
 description = "CDISC compliance"
 readme = "README.rst"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 dependencies = [
-    "clinicedc>=4.0.6",
+    "clinicedc>=4.1.2",
+    "lxml>=5.0",
 ]
 
 [dependency-groups]
 dev = [
     "clinicedc-tests>=1.2.2",
+    "psycopg>=3.2",
     "ruff>=0.15.15",
     "sphinx>=9.1.0",
 ]
@@ -41,9 +43,7 @@ exclude = ["migrations", ".tox", ".venv"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-
-[tool.ruff.lint.mccabe]
-max-complexity = 12
+"tests/**" = ["S101", "PLR2004", "ARG001"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -58,6 +58,7 @@ select = [
     "B",
     "C90",
     "COM",
+    "ISC",
     "DTZ",
     "E",
     "F",
@@ -73,12 +74,22 @@ select = [
     "RET",
     "RUF",
     # "S",
+    "S324",
+    "S106",
     "SIM",
     "T20",
     "TRY",
     "UP",
     "W",
 ]
+
 ignore = [
     "COM812",
+    "TRY003"
 ]
+
+[tool.ruff.lint.pylint]
+max-args = 8
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12

@@ -1,0 +1,81 @@
+---
+name: build
+
+# yamllint disable-line rule:truthy
+on: [push, pull_request]
+
+jobs:
+  build:
+    name: >-
+      build (Python ${{ matrix.python-version }},
+      Django ${{ matrix.django-version }},
+      ${{ matrix.database }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.12', '3.13', '3.14']
+        django-version: ['5.2', '6.0', 'dev']
+        database: ['mysql', 'postgres']
+
+    services:
+      mysql:
+        image: mysql:latest
+        env:
+          MYSQL_DATABASE: mysql
+          # pragma: allowlist secret
+          MYSQL_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=3
+
+      postgres:
+        image: postgres:latest
+        env:
+          POSTGRES_DB: test_db
+          # pragma: allowlist secret
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Install pycups and words dependency
+        run: |
+          sudo sed -i 's/azure\.//' /etc/apt/sources.list
+          sudo apt-get -y update
+          sudo apt-get install libcups2-dev wamerican
+
+      - uses: actions/checkout@v6
+
+      - name: Install uv and set the python version
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Install dependencies
+        run: |
+          uv sync --dev --no-sources
+          if [ "${{ matrix.django-version }}" = "dev" ]; then
+            uv pip install \
+              "django @ git+https://github.com/django/django.git@main"
+          else
+            uv pip install \
+              "django~=${{ matrix.django-version }}.0"
+          fi
+
+      - name: Run tests
+        env:
+          SELECTED_DATABASE: ${{ matrix.database }}
+        run: |
+          uv run --dev --no-sources runtests.py
