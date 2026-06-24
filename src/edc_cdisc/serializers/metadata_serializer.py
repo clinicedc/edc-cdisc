@@ -10,10 +10,12 @@ from lxml import etree
 from ..constants import (
     CODELIST,
     COMMON_TYPE,
+    CONSENT_EVENT_CATEGORY,
     FORM,
     ITEM,
     ITEM_GROUP,
     SCHEDULED_TYPE,
+    SCREENING_EVENT_CATEGORY,
     UNSCHEDULED_TYPE,
 )
 from ..exceptions import ProtocolSerializerError
@@ -70,14 +72,14 @@ class MetadataSerializer(VisitScheduleSerializer):
         element = etree.Element("MetaDataVersion")
         element.append(self.get_protocol_element())
 
-        screening_model = self.get_screening_model()
+        subject_level_events = list(self.iter_subject_level_events())
 
         # StudyEventDefs (order among them is free; schedule carried by Alias)
-        for model in self.get_common_models():
-            element.append(self.get_common_event_def_element(model))
-        if screening_model:
+        for model, category, repeating in subject_level_events:
             element.append(
-                self.get_common_event_def_element(screening_model, event_category="screening")
+                self.get_common_event_def_element(
+                    model, event_category=category, repeating=repeating
+                )
             )
         for schedule in self.visit_schedule.schedules.values():
             for visit in schedule.visits.values():
@@ -95,9 +97,7 @@ class MetadataSerializer(VisitScheduleSerializer):
             for visit in schedule.visits.values()
             for crf in [*visit.all_crfs, *visit.all_requisitions]
         }
-        common_models = [*self.get_common_models()]
-        if screening_model:
-            common_models.append(screening_model)
+        common_models = [model for model, _category, _repeating in subject_level_events]
         models = [
             m
             for m in dict.fromkeys([*common_models, *sorted(form_models)])
@@ -130,21 +130,29 @@ class MetadataSerializer(VisitScheduleSerializer):
                 StudyEventOID=self.unscheduled_event_oid(visit_code),
                 Mandatory=NO,
             )
-        for model in self.get_common_models():
+        for model, _category, _repeating in self.iter_subject_level_events():
             etree.SubElement(
                 element,
                 "StudyEventRef",
                 StudyEventOID=self.common_event_oid(model),
                 Mandatory=NO,
             )
-        if screening_model := self.get_screening_model():
-            etree.SubElement(
-                element,
-                "StudyEventRef",
-                StudyEventOID=self.common_event_oid(screening_model),
-                Mandatory=NO,
-            )
         return element
+
+    def iter_subject_level_events(self) -> Iterator[tuple[str, str | None, bool]]:
+        """Yield ``(model, event_category, repeating)`` for each non-scheduled,
+        subject-level Common event: death/offstudy, then screening, then consent.
+
+        Single source for the StudyEventDefs, the definition catalog, and the
+        Protocol StudyEventRefs so they cannot drift.  Consent is repeating
+        (unique on subject_identifier + version); the rest are singletons.
+        """
+        for model in self.get_common_models():
+            yield model, None, False
+        if screening_model := self.get_screening_model():
+            yield screening_model, SCREENING_EVENT_CATEGORY, False
+        if consent_model := self.get_consent_model():
+            yield consent_model, CONSENT_EVENT_CATEGORY, True
 
     @staticmethod
     def append_schedule_alias(element: etree._Element, schedule_name: str) -> None:
@@ -326,13 +334,14 @@ class MetadataSerializer(VisitScheduleSerializer):
         self,
         model: str,
         event_category: str | None = None,
+        repeating: bool = False,
     ) -> etree._Element:
         verbose_name = str(django_apps.get_model(model)._meta.verbose_name)
         element = etree.Element(
             "StudyEventDef",
             OID=self.common_event_oid(model),
             Name=verbose_name,
-            Repeating=NO,
+            Repeating=YES if repeating else NO,
             Type=COMMON_TYPE,
         )
         etree.SubElement(
