@@ -7,6 +7,7 @@ from clinicedc_tests.helper import Helper
 from clinicedc_tests.models import CrfFour, SubjectConsent, SubjectScreening
 from dateutil.relativedelta import relativedelta
 from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.db import models
 from django.test import TestCase, override_settings
 from django_crypto_fields.fields import EncryptedCharField, FirstnameField
@@ -27,7 +28,9 @@ from edc_cdisc.serializers import (
     ClinicalDataSerializer,
     MetadataSerializer,
     SnapshotSerializer,
+    TransactionalSerializer,
 )
+from edc_cdisc.serializers.admin_data_mixin import AdminDataMixin
 from edc_cdisc.utils import is_encrypted_field, iter_whitelist_fields, validate_odm
 
 CONSENT_OID = "CE.clinicedc_tests.subjectconsent"
@@ -213,6 +216,69 @@ class TestValidateOdm(TestCase):
             }
             self.assertNotIn("I.clinicedc_tests.subjectconsent.first_name", oids)
             self.assertIn("I.clinicedc_tests.subjectconsent.version", oids)
+
+    def _attribute_history_to(self, username: str) -> None:
+        get_user_model().objects.create(
+            username=username,
+            first_name="Amos",
+            last_name="Otieno",
+            email="amos@example.org",
+        )
+        # no request user in tests → simple_history history_user is null; the
+        # serializer falls back to the un-editable audit username on the row
+        CrfFour.history.update(user_modified=username)
+
+    def test_transactional_validates_with_audit_records(self) -> None:
+        self._attribute_history_to("amos")
+        root = etree.fromstring(self._build(TransactionalSerializer))
+        self.assertEqual(root.get("FileType"), "Transactional")
+        # a CRF FormData carries a TransactionType and a first-child AuditRecord
+        fd = root.find(".//odm:FormData[@FormOID='F.clinicedc_tests.crffour']", NS)
+        self.assertIsNotNone(fd)
+        self.assertIn(fd.get("TransactionType"), {"Insert", "Update"})
+        self.assertEqual(fd[0].tag, f"{{{ODM_NAMESPACE}}}AuditRecord")
+        self.assertIsNotNone(fd.find("odm:AuditRecord/odm:DateTimeStamp", NS))
+        self.assertEqual(validate_odm(self._build(TransactionalSerializer)), [])
+
+    def test_transactional_admin_data_user_and_location(self) -> None:
+        self._attribute_history_to("amos")
+        root = etree.fromstring(self._build(TransactionalSerializer))
+        user = root.find(".//odm:AdminData/odm:User[@OID='USR.amos']", NS)
+        self.assertIsNotNone(user)
+        self.assertEqual(user.findtext("odm:LoginName", namespaces=NS), "amos")
+        self.assertTrue(user.get("UserType"))  # closed enum; field staff → Other
+        loc = root.find(".//odm:AdminData/odm:Location[@OID='LOC.10']", NS)
+        self.assertIsNotNone(loc)
+        ref = loc.find("odm:MetaDataVersionRef", NS)
+        self.assertEqual(ref.get("EffectiveDate"), "2019-08-01")  # study_open_datetime
+
+    def test_transactional_records_insert_then_update(self) -> None:
+        crf = CrfFour.objects.get(subject_visit=self.subject_visit)
+        crf.save()  # second save → an Update history row
+        root = etree.fromstring(self._build(TransactionalSerializer))
+        txns = [
+            fd.get("TransactionType")
+            for fd in root.findall(".//odm:FormData[@FormOID='F.clinicedc_tests.crffour']", NS)
+        ]
+        self.assertIn("Insert", txns)
+        self.assertIn("Update", txns)
+
+    def test_transactional_consent_history_drops_encrypted_pii(self) -> None:
+        # the guard applies to historical rows too: historical_subjectconsent
+        # holds every column, but only the whitelist is serialized
+        root = etree.fromstring(self._build(TransactionalSerializer))
+        item_oids = {e.get("ItemOID") for e in root.iter() if e.get("ItemOID")}
+        self.assertNotIn("I.clinicedc_tests.subjectconsent.first_name", item_oids)
+
+
+class TestUserTypeMapping(TestCase):
+    def test_defaults_to_other_and_promotes_mapped_role(self) -> None:
+        self.assertEqual(AdminDataMixin.user_type_for_roles(["nurse"]), "Other")
+        with override_settings(EDC_CDISC_USER_TYPE_BY_ROLE={"sponsor_dm": "Sponsor"}):
+            # priority Sponsor > Investigator > Lab when several map
+            self.assertEqual(
+                AdminDataMixin.user_type_for_roles(["nurse", "sponsor_dm"]), "Sponsor"
+            )
 
 
 class TestConsentWhitelistFloor(TestCase):

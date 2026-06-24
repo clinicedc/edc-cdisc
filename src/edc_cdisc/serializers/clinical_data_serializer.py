@@ -136,7 +136,11 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
         return element
 
     def build_form_data(
-        self, model: str, instance, transaction_type: str | None = None
+        self,
+        model: str,
+        instance,
+        transaction_type: str | None = None,
+        audit_record: etree._Element | None = None,
     ) -> etree._Element:
         # Field selection keys off the *concrete* model label (not type(instance)):
         # for a simple_history row type(instance) is the historical model, whose
@@ -147,6 +151,9 @@ class ClinicalDataSerializer(VisitScheduleSerializer):
         if transaction_type:
             attrs["TransactionType"] = transaction_type
         element = etree.Element("FormData", **attrs)
+        # ODM: AuditRecord precedes ItemGroupData
+        if audit_record is not None:
+            element.append(audit_record)
 
         # SAME field selection as the metadata side → ItemGroupOID/ItemOID
         # line up (encrypted fields skipped, sections kept stable).

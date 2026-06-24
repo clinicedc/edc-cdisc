@@ -89,6 +89,17 @@ CODELIST = "CL"  # codelist
 ITEM_GROUP = "IG"
 ITEM = "I"
 FORM = "F"
+USER = "USR"  # AdminData User OID prefix
+LOCATION = "LOC"  # AdminData Location OID prefix
+
+SITE_LOCATION_TYPE = "Site"  # ODM Location@LocationType for a study site
+USER_TYPE_OTHER = "Other"  # default ODM User@UserType (field staff are not Investigators)
+
+# ODM AuditRecord TransactionType, mapped from simple_history history_type
+INSERT = "Insert"
+UPDATE = "Update"
+REMOVE = "Remove"
+HISTORY_TYPE_MAP = {"+": INSERT, "~": UPDATE, "-": REMOVE}
 
 SCHEDULED_TYPE = "Scheduled"
 UNSCHEDULED_TYPE = "Unscheduled"
