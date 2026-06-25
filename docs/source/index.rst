@@ -40,4 +40,5 @@ will be driven by the audit trail.
    data_export_combined
    validation
    odm_mapping
+   sdtm_design
    api
